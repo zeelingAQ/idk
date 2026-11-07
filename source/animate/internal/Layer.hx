@@ -65,17 +65,22 @@ class Layer implements IFlxDestroyable
 	 * @param index Index of the new keyframe.
 	 */
 	public function setKeyframe(index:Int)
-	{
-		var lastFrame = getFrameAtIndex(index);
-		if (lastFrame == null || lastFrame.index == index) // already is a keyframe or doesnt exist
-			return;
+{
+	var lastFrame = getFrameAtIndex(index);
+	if (lastFrame == null || lastFrame.index == index) // already is a keyframe or doesnt exist
+		return;
 
-		setBlankKeyframe(index);
-		var keyframe = getFrameAtIndex(index);
+	setBlankKeyframe(index);
+	var keyframe = getFrameAtIndex(index);
+	if (keyframe == null)
+		return;
 
-		keyframe.elements = lastFrame.elements.copy();
-		keyframe.name = lastFrame.name;
-	}
+	keyframe.elements = lastFrame.elements.copy();
+	keyframe.name = lastFrame.name;
+
+	if (timeline != null)
+		timeline.clearEffectiveFrameCountCache();
+}
 
 	/**
 	 * Sets the frame of the layer at a specific index as an empty keyframe.
@@ -83,20 +88,25 @@ class Layer implements IFlxDestroyable
 	 * @param index Index of the new keyframe.
 	 */
 	public function setBlankKeyframe(index:Int)
-	{
-		var lastFrame = getFrameAtIndex(index);
+{
+	var lastFrame = getFrameAtIndex(index);
+	if (lastFrame == null)
+		return;
 
-		var startIndex = lastFrame.index;
-		var startDuration = lastFrame.duration;
+	var startIndex = lastFrame.index;
+	var startDuration = lastFrame.duration;
 
-		var keyframe = new Frame(this);
-		keyframe.index = index;
-		keyframe.duration = startDuration - (index - startIndex);
+	var keyframe = new Frame(this);
+	keyframe.index = index;
+	keyframe.duration = startDuration - (index - startIndex);
 
-		frames.insert(frames.indexOf(lastFrame) + 1, keyframe);
-		for (i in 0...keyframe.duration)
-			frameIndices[index + i] = frames.length - 1;
-	}
+	frames.insert(frames.indexOf(lastFrame) + 1, keyframe);
+	for (i in 0...keyframe.duration)
+		frameIndices[index + i] = frames.length - 1;
+
+	if (timeline != null)
+		timeline.clearEffectiveFrameCountCache();
+}
 
 	/**
 	 * Returns the bounds of the layer at a specific frame index.
@@ -178,17 +188,20 @@ class Layer implements IFlxDestroyable
 			visible = false;
 
 		if (this.layerType != FOLDER)
+{
+	if (layer.FR != null)
+	{
+		for (i => frameJson in layer.FR)
 		{
-			for (i => frameJson in layer.FR)
-			{
-				var frame = new Frame(this);
-				frame._loadJson(frameJson, parent);
-				frames.push(frame);
+			var frame = new Frame(this);
+			frame._loadJson(frameJson, parent);
+			frames.push(frame);
 
-				for (_ in 0...frame.duration)
-					frameIndices.push(i);
-			}
+			for (_ in 0...frame.duration)
+				frameIndices.push(i);
 		}
+	}
+}
 
 		if (!isMasked)
 			return;
