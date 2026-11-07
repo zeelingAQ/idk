@@ -96,22 +96,40 @@ class SymbolInstance extends AnimateElement<SymbolInstanceJson>
 	 * @return				Found frame index for rendering at a specific frame.
 	 */
 	public function getFrameIndex(index:Int, frameIndex:Int = 0):Int
+{
+	if (libraryItem == null)
+		return firstFrame;
+
+	var timeline = libraryItem.timeline;
+	var effectiveFrames = timeline.getEffectiveFrameCount();
+	if (effectiveFrames <= 0)
+		effectiveFrames = timeline.frameCount;
+
+	var result = firstFrame + (index - frameIndex);
+
+	switch (loopType)
 	{
-		var frameIndex = firstFrame + (index - frameIndex);
-		var frameCount = libraryItem.timeline.frameCount;
+		case LoopType.LOOP:
+			if (effectiveFrames > 0)
+				result = FlxMath.wrap(result, 0, effectiveFrames - 1);
 
-		switch (loopType)
-		{
-			case LoopType.LOOP:
-				frameIndex = FlxMath.wrap(frameIndex, 0, frameCount - 1);
-			case LoopType.PLAY_ONCE:
-				frameIndex = FlxMath.minInt(frameIndex, frameCount - 1);
-			case LoopType.SINGLE_FRAME:
-				frameIndex = firstFrame;
-		}
+		case LoopType.PLAY_ONCE:
+			if (effectiveFrames > 0)
+			{
+				if (firstFrame >= effectiveFrames)
+					result = effectiveFrames - 1;
+				else
+					result = FlxMath.minInt(result, effectiveFrames - 1);
+			}
 
-		return frameIndex;
+		case LoopType.SINGLE_FRAME:
+			result = firstFrame;
+			if (effectiveFrames > 0 && result >= effectiveFrames)
+				result = effectiveFrames - 1;
 	}
+
+	return result;
+}
 
 	/**
 	 * Method used internally to check if a symbol has simple rendering (one frame).
@@ -135,8 +153,13 @@ class SymbolInstance extends AnimateElement<SymbolInstanceJson>
 	var _tmpMatrix:FlxMatrix = new FlxMatrix();
 
 	override function getBounds(frameIndex:Int, ?rect:FlxRect, ?matrix:FlxMatrix, ?includeFilters:Bool = true, ?useCachedBounds:Bool = false):FlxRect
-	{
-		// TODO: look into this
+{
+	rect ??= FlxRect.get();
+
+	if (libraryItem == null)
+		return rect.set(0, 0, 0, 0);
+
+	// TODO: look into this
 		// Patch-on fix for a really weird fucking bug
 		if (libraryItem != null && libraryItem.timeline.parent.existsSymbol(symbolName))
 			libraryItem = libraryItem.timeline.parent.getSymbol(symbolName);
@@ -160,8 +183,11 @@ class SymbolInstance extends AnimateElement<SymbolInstanceJson>
 
 	override function draw(camera:FlxCamera, index:Int, frameIndex:Int, parentMatrix:FlxMatrix, ?transform:ColorTransform, ?blend:BlendMode,
 			?antialiasing:Bool, ?shader:FlxShader):Void
-	{
-		if (isColored) // Concat symbol's color to the current color transform
+{
+	if (libraryItem == null)
+		return;
+
+	if (isColored) // Concat symbol's color to the current color transform
 		{
 			var t = this.transform;
 
@@ -189,9 +215,12 @@ class SymbolInstance extends AnimateElement<SymbolInstanceJson>
 	}
 
 	function _drawTimeline(camera:FlxCamera, index:Int, frameIndex:Int, parentMatrix:FlxMatrix, transform:Null<ColorTransform>, blend:Null<BlendMode>,
-			antialiasing:Null<Bool>, shader:Null<FlxShader>)
-	{
-		_mat.copyFrom(matrix);
+		antialiasing:Null<Bool>, shader:Null<FlxShader>)
+{
+	if (libraryItem == null)
+		return;
+
+	_mat.copyFrom(matrix);
 		_mat.concat(parentMatrix);
 		libraryItem.timeline.currentFrame = getFrameIndex(index, frameIndex);
 		libraryItem.timeline.draw(camera, _mat, transform, blend, antialiasing, shader);
