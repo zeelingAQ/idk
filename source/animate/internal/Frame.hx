@@ -99,7 +99,10 @@ class Frame implements IFlxDestroyable
 		}
 
 		if (layer != null && layer.timeline != null)
+		{
 			layer.timeline.parent.setSymbolDirty(layer.timeline.name);
+			layer.timeline.clearEffectiveFrameCountCache();
+		}
 	}
 
 	/**
@@ -179,7 +182,7 @@ class Frame implements IFlxDestroyable
 		}
 
 		// Calculate masked bounds of the frame
-		if (this.layer.layerType == CLIPPED && this.layer.parentLayer != null)
+		if (this.layer != null && this.layer.layerType == CLIPPED && this.layer.parentLayer != null)
 		{
 			tmpRect.set();
 			var maskerBounds = this.layer.parentLayer.getBounds(frameIndex + this.index, tmpRect, matrix, includeFilters, useCachedBounds);
