@@ -29,6 +29,7 @@ class Timeline implements IFlxDestroyable
 
 	var _layerMap:Map<String, Layer>;
 	var _bounds:FlxRect;
+	var _cachedEffectiveFrameCount:Int = -1;
 
 	public function new(?timeline:TimelineJson, parent:FlxAnimateFrames, ?name:String)
 	{
@@ -42,6 +43,61 @@ class Timeline implements IFlxDestroyable
 
 		if (timeline != null)
 			_loadJson(timeline);
+	}
+
+	/**
+	 * Returns the number of frames up to the last frame that contains visible elements.
+	 */
+	public function getEffectiveFrameCount():Int
+	{
+		if (_cachedEffectiveFrameCount >= 0)
+			return _cachedEffectiveFrameCount;
+
+		if (frameCount <= 0)
+		{
+			_cachedEffectiveFrameCount = 0;
+			return 0;
+		}
+
+		var lastNonEmpty:Int = -1;
+		for (i in 0...frameCount)
+		{
+			if (isFrameNonEmpty(i))
+			{
+				lastNonEmpty = i;
+				break;
+			}
+		}
+
+		if (lastNonEmpty < 0)
+		{
+			_cachedEffectiveFrameCount = frameCount;
+			return _cachedEffectiveFrameCount;
+		}
+
+		var last:Int = frameCount - 1;
+		while (last > lastNonEmpty && !isFrameNonEmpty(last))
+			last--;
+
+		_cachedEffectiveFrameCount = last + 1;
+		return _cachedEffectiveFrameCount;
+	}
+
+	public function isFrameNonEmpty(index:Int):Bool
+	{
+		for (layer in layers)
+		{
+			if (!layer.visible) continue;
+			var f = layer.getFrameAtIndex(index);
+			if (f != null && f.elements.length > 0)
+				return true;
+		}
+		return false;
+	}
+
+	public function clearEffectiveFrameCountCache():Void
+	{
+		_cachedEffectiveFrameCount = -1;
 	}
 
 	public function getLayer(name:OneOfTwo<Int, String>):Null<Layer>
@@ -304,6 +360,7 @@ class Timeline implements IFlxDestroyable
 		layers = FlxDestroyUtil.destroyArray(layers);
 		_bounds = FlxDestroyUtil.put(_bounds);
 		_layerMap = null;
+		_cachedEffectiveFrameCount = -1;
 
 		if (_cachedBounds != null)
 		{
@@ -367,38 +424,26 @@ class Timeline implements IFlxDestroyable
 		var tx = m.a * rect.right + m.c * rect.top;
 		var ty = m.b * rect.right + m.d * rect.top;
 
-		if (tx < tx0)
-			tx0 = tx;
-		if (ty < ty0)
-			ty0 = ty;
-		if (tx > tx1)
-			tx1 = tx;
-		if (ty > ty1)
-			ty1 = ty;
+		if (tx < tx0) tx0 = tx;
+		if (ty < ty0) ty0 = ty;
+		if (tx > tx1) tx1 = tx;
+		if (ty > ty1) ty1 = ty;
 
 		tx = m.a * rect.right + m.c * rect.bottom;
 		ty = m.b * rect.right + m.d * rect.bottom;
 
-		if (tx < tx0)
-			tx0 = tx;
-		if (ty < ty0)
-			ty0 = ty;
-		if (tx > tx1)
-			tx1 = tx;
-		if (ty > ty1)
-			ty1 = ty;
+		if (tx < tx0) tx0 = tx;
+		if (ty < ty0) ty0 = ty;
+		if (tx > tx1) tx1 = tx;
+		if (ty > ty1) ty1 = ty;
 
 		tx = m.a * rect.left + m.c * rect.bottom;
 		ty = m.b * rect.left + m.d * rect.bottom;
 
-		if (tx < tx0)
-			tx0 = tx;
-		if (ty < ty0)
-			ty0 = ty;
-		if (tx > tx1)
-			tx1 = tx;
-		if (ty > ty1)
-			ty1 = ty;
+		if (tx < tx0) tx0 = tx;
+		if (ty < ty0) ty0 = ty;
+		if (tx > tx1) tx1 = tx;
+		if (ty > ty1) ty1 = ty;
 
 		rect.set(tx0 + m.tx, ty0 + m.ty, tx1 - tx0, ty1 - ty0);
 		return rect;

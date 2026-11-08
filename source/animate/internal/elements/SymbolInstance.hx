@@ -94,21 +94,30 @@ class SymbolInstance extends AnimateElement<SymbolInstanceJson>
 		if (libraryItem == null)
 			return firstFrame;
 
-		var frameIndex = firstFrame + (index - frameIndex);
-		var frameCount = libraryItem.timeline.frameCount;
+		var timeline = libraryItem.timeline;
+		var effectiveFrames = timeline.getEffectiveFrameCount();
+		var actualFrameCount = timeline.frameCount;
+
+		if (effectiveFrames <= 0 || effectiveFrames > actualFrameCount)
+			effectiveFrames = actualFrameCount;
+
+		var result = firstFrame + (index - frameIndex);
 
 		switch (loopType)
 		{
 			case LoopType.LOOP:
-				frameIndex = FlxMath.wrap(frameIndex, 0, frameCount - 1);
+				if (effectiveFrames > 0)
+					result = FlxMath.wrap(result, 0, effectiveFrames - 1);
+
 			case LoopType.PLAY_ONCE:
-				if (frameIndex >= frameCount)
-					frameIndex = -1;
+				if (effectiveFrames > 0 && result >= effectiveFrames)
+					result = -1;
+
 			case LoopType.SINGLE_FRAME:
-				frameIndex = firstFrame;
+				result = firstFrame;
 		}
 
-		return frameIndex;
+		return result;
 	}
 
 	public function isSimpleSymbol():Bool

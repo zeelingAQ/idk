@@ -28,11 +28,6 @@ class Layer implements IFlxDestroyable
 		this.layerType = NORMAL;
 	}
 
-	/**
-	 * Applies a function to all the keyframes of the layer.
-	 *
-	 * @param callback The ``Frame->Void`` function to call for all the existing keyframes.
-	 */
 	public function forEachFrame(callback:Frame->Void)
 	{
 		if (frames != null)
@@ -42,12 +37,6 @@ class Layer implements IFlxDestroyable
 		}
 	}
 
-	/**
-	 * Returns a frame of the layer at a specific index.
-	 *
-	 * @param index Index of the frame.
-	 * @return		The ``Frame`` found at the index, null if it doesn't exist.
-	 */
 	public function getFrameAtIndex(index:Int):Null<Frame>
 	{
 		index = FlxMath.maxInt(index, 0);
@@ -58,33 +47,29 @@ class Layer implements IFlxDestroyable
 		return frames[frameIndex];
 	}
 
-	/**
-	 * Sets the frame of the layer at a specific index as a keyframe.
-	 * While keeping all the previous elements stored at the frame.
-	 *
-	 * @param index Index of the new keyframe.
-	 */
 	public function setKeyframe(index:Int)
 	{
 		var lastFrame = getFrameAtIndex(index);
-		if (lastFrame == null || lastFrame.index == index) // already is a keyframe or doesnt exist
+		if (lastFrame == null || lastFrame.index == index)
 			return;
 
 		setBlankKeyframe(index);
 		var keyframe = getFrameAtIndex(index);
+		if (keyframe == null)
+			return;
 
 		keyframe.elements = lastFrame.elements.copy();
 		keyframe.name = lastFrame.name;
+
+		if (timeline != null)
+			timeline.clearEffectiveFrameCountCache();
 	}
 
-	/**
-	 * Sets the frame of the layer at a specific index as an empty keyframe.
-	 *
-	 * @param index Index of the new keyframe.
-	 */
 	public function setBlankKeyframe(index:Int)
 	{
 		var lastFrame = getFrameAtIndex(index);
+		if (lastFrame == null)
+			return;
 
 		var startIndex = lastFrame.index;
 		var startDuration = lastFrame.duration;
@@ -96,17 +81,11 @@ class Layer implements IFlxDestroyable
 		frames.insert(frames.indexOf(lastFrame) + 1, keyframe);
 		for (i in 0...keyframe.duration)
 			frameIndices[index + i] = frames.length - 1;
+
+		if (timeline != null)
+			timeline.clearEffectiveFrameCountCache();
 	}
 
-	/**
-	 * Returns the bounds of the layer at a specific frame index.
-	 *
-	 * @param frameIndex			The frame index where to calculate the bounds from.
-	 * @param rect					Optional, the rectangle used to input the final calculated values.
-	 * @param matrix				Optional, the matrix to apply to the bounds calculation.
-	 * @param includeFilters		Optional, if to include filtered bounds in the calculation or use the unfilitered ones (true to Flash's bounds).
-	 * @return						A ``FlxRect`` with the layer's bounds at an index, empty if no elements were found.
-	 */
 	public function getBounds(frameIndex:Int, ?rect:FlxRect, ?matrix:FlxMatrix, ?includeFilters:Bool = true, ?useCachedBounds:Bool = false):FlxRect
 	{
 		rect ??= FlxRect.get();
@@ -138,7 +117,7 @@ class Layer implements IFlxDestroyable
 		var clippedBy:Null<String> = layer.Clpb;
 		var isMasked:Bool = clippedBy != null;
 
-		if (isMasked && layerIndex != null && layers != null) // Set clipped by
+		if (isMasked && layerIndex != null && layers != null)
 		{
 			var i = layerIndex - 1;
 			var foundLayer:Bool = false;
@@ -162,7 +141,7 @@ class Layer implements IFlxDestroyable
 				visible = false;
 			}
 		}
-		else // Set other layer types
+		else
 		{
 			final type:Null<String> = layer.LT;
 			this.layerType = type != null ? switch (type)
@@ -173,27 +152,28 @@ class Layer implements IFlxDestroyable
 			} : NORMAL;
 		}
 
-		// Set clipper
 		if (this.layerType == CLIPPER)
 			visible = false;
 
 		if (this.layerType != FOLDER)
 		{
-			for (i => frameJson in layer.FR)
+			if (layer.FR != null)
 			{
-				var frame = new Frame(this);
-				frame._loadJson(frameJson, parent);
-				frames.push(frame);
+				for (i => frameJson in layer.FR)
+				{
+					var frame = new Frame(this);
+					frame._loadJson(frameJson, parent);
+					frames.push(frame);
 
-				for (_ in 0...frame.duration)
-					frameIndices.push(i);
+					for (_ in 0...frame.duration)
+						frameIndices.push(i);
+				}
 			}
 		}
 
 		if (!isMasked)
 			return;
 
-		// Add settings from parent frames
 		var _cacheOnLoad:Bool = false;
 		@:privateAccess {
 			if (parent != null && parent._settings != null)
@@ -208,8 +188,7 @@ class Layer implements IFlxDestroyable
 			frame._dirty = true;
 			frame._requireBake = true;
 
-			// Cache all frames on start, if set by the settings
-			if (_cacheOnLoad) // TODO: fix some size issues when using cacheOnLoad with masks
+			if (_cacheOnLoad)
 			{
 				for (i in 0...frame.duration)
 					frame._bakeFrame(i);
@@ -229,6 +208,7 @@ class Layer implements IFlxDestroyable
 
 		frames = null;
 		frameIndices = null;
+		timeline = null;
 	}
 
 	inline function get_frameCount():Int

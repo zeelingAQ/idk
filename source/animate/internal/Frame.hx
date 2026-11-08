@@ -47,12 +47,6 @@ class Frame implements IFlxDestroyable
 		this.index = 0;
 	}
 
-	/**
-	 * Adds an ``Element`` object to the elements list of the frame.
-	 * If the frame is masked it will require a redraw.
-	 *
-	 * @param element Element object to add to the frame. It won't be added if its already part of the list.
-	 */
 	public function add(element:Element):Void
 	{
 		if (elements.indexOf(element) != -1)
@@ -63,13 +57,6 @@ class Frame implements IFlxDestroyable
 		setDirty();
 	}
 
-	/**
-	 * Insert an ``Element`` object to an index of the elements list of the frame.
-	 * If the frame is masked it will require a redraw.
-	 *
-	 * @param index		Index where to add the element to.
-	 * @param element 	Element object to add to the frame. It won't be added if its already part of the list.
-	 */
 	public function insert(index:Int, element:Element)
 	{
 		if (elements.indexOf(element) != -1)
@@ -80,10 +67,6 @@ class Frame implements IFlxDestroyable
 		setDirty();
 	}
 
-	/**
-	 * Clears up the memory from the previously baked frames and
-	 * sets the frame ready for a new rebake of masks/filters.
-	 */
 	public function setDirty()
 	{
 		if (_requireBake)
@@ -99,18 +82,12 @@ class Frame implements IFlxDestroyable
 		}
 
 		if (layer != null && layer.timeline != null)
+		{
 			layer.timeline.parent.setSymbolDirty(layer.timeline.name);
+			layer.timeline.clearEffectiveFrameCountCache();
+		}
 	}
 
-	/**
-	 *	Packs and replaces the selected elements from the frame into a new symbol item and instance.
-	 *	NOTE: Doesn't include the new symbol item into the texture atlas library/dictionary.
-	 *
-	 * @param fromIndex Index where to start converting elements from.
-	 * @param toIndex 	Index where to stop converting elements from.
-	 * @param type 		Optional, type of symbol instance to create (``GRAPHIC``, ``MOVIECLIP``, ``BUTTON``).
-	 * @return 			An new symbol instance containing the selected elements.
-	 */
 	@:access(animate.internal.Layer)
 	public function convertToSymbol(fromIndex:Int, toIndex:Int, ?type:ElementType = GRAPHIC):SymbolInstance
 	{
@@ -136,32 +113,17 @@ class Frame implements IFlxDestroyable
 		return instance;
 	}
 
-	/**
-	 * Applies a function to all the elements of the frame.
-	 *
-	 * @param callback The ``Element->Void`` function to call for all the existing elements.
-	 */
 	public function forEachElement(callback:Element->Void):Void
 	{
 		for (element in this.elements)
 			callback(element);
 	}
 
-	/**
-	 * Returns the bounds of the keyframe at a specific index.
-	 *
-	 * @param frameIndex			The frame index where to calculate the bounds from.
-	 * @param rect					Optional, the rectangle used to input the final calculated values.
-	 * @param matrix				Optional, the matrix to apply to the bounds calculation.
-	 * @param includeFilters		Optional, if to include filtered bounds in the calculation or use the unfilitered ones (true to Flash's bounds).
-	 * @return						A ``FlxRect`` with the complete frames's bounds at an index, empty if no elements were found.
-	 */
 	public function getBounds(frameIndex:Int, ?rect:FlxRect, ?matrix:FlxMatrix, ?includeFilters:Bool = true, ?useCachedBounds:Bool = false):FlxRect
 	{
 		rect ??= FlxRect.get();
 		rect.set();
 
-		// Returns empty bounds if theres no elements in the frame
 		if (elements.length <= 0)
 		{
 			(matrix != null) ? rect.set(matrix.tx, matrix.ty, 0, 0) : rect.set(0, 0, 0, 0);
@@ -170,7 +132,6 @@ class Frame implements IFlxDestroyable
 
 		var tmpRect = FlxRect.get();
 
-		// Loop through the bounds of each element
 		rect = elements[0].getBounds(frameIndex, rect, matrix, includeFilters, useCachedBounds);
 		for (i in 1...elements.length)
 		{
@@ -178,8 +139,7 @@ class Frame implements IFlxDestroyable
 			rect = Timeline.expandBounds(rect, tmpRect);
 		}
 
-		// Calculate masked bounds of the frame
-		if (this.layer.layerType == CLIPPED && this.layer.parentLayer != null)
+		if (this.layer != null && this.layer.layerType == CLIPPED && this.layer.parentLayer != null)
 		{
 			tmpRect.set();
 			var maskerBounds = this.layer.parentLayer.getBounds(frameIndex + this.index, tmpRect, matrix, includeFilters, useCachedBounds);
@@ -249,7 +209,7 @@ class Frame implements IFlxDestroyable
 		{
 			final soundPath:String = parent.path + '/LIBRARY/' + frame.SND.N;
 
-			#if (cpp || hl) // Default sound loading has issues with WAV files on native for some reason
+			#if (cpp || hl)
 			if (soundPath.endsWith(".wav"))
 			{
 				var bytes = FlxAnimateAssets.getBytes(soundPath);
@@ -281,12 +241,9 @@ class Frame implements IFlxDestroyable
 			return;
 		}
 
-		// Prepare vector to store masks
 		if (_bakedFrames == null)
 			_bakedFrames = new BakedFramesVector(duration);
 
-		// Prepare indices vector
-		// This is used as a way to save on the necessary bitmaps to render a mask
 		if (_bakedIndices == null)
 		{
 			var isSimpleRender:Bool = true;
@@ -319,7 +276,6 @@ class Frame implements IFlxDestroyable
 		if (bakedFrame.frame == null || bakedFrame.frame.frame.isEmpty)
 			bakedFrame.visible = false;
 
-		// All frames have been baked
 		if (_dirty && _bakedFrames.isFull())
 			_dirty = false;
 	}
