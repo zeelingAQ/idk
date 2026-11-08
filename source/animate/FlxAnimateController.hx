@@ -270,34 +270,32 @@ class FlxAnimateController extends FlxAnimationController
 	}
 
 	override function set_frameIndex(frame:Int):Int
-{
-	if (!isAnimate)
-		return super.set_frameIndex(frame);
-
-	var curAnim:Null<FlxAnimateAnimation> = cast _curAnim;
-	if (curAnim != null && (curAnim is FlxAnimateAnimation))
 	{
-		final numFrames = curAnim.frames.length;
-		if (numFrames > 0)
+		if (!isAnimate)
+			return super.set_frameIndex(frame);
+
+		var curAnim:Null<FlxAnimateAnimation> = cast _curAnim;
+		if (curAnim != null)
 		{
-			frame = frame % numFrames;
+			final numFrames = #if (flixel >= "5.4.0") numFrames #else curAnim.timeline.frameCount #end;
+			if (numFrames > 0)
+			{
+				frame = frame % numFrames;
 
-			_animate.timeline = curAnim.timeline;
-			
-			_animate.timeline.currentFrame = frame;
-			_animate.timeline.signalFrameChange(frame, this);
-			
-			if (_animate.useRenderTexture)
-				_animate._renderTextureDirty = true;
-			frameIndex = frame;
-			fireCallback();
+				_animate.timeline = curAnim.timeline;
+				_animate.timeline.currentFrame = frame;
+				_animate.timeline.signalFrameChange(frame, this);
+				if (_animate.useRenderTexture)
+					_animate._renderTextureDirty = true;
+				frameIndex = frame;
+				fireCallback();
 
-			updateTimelineBounds();
+				updateTimelineBounds();
+			}
 		}
-	}
 
-	return frameIndex;
-}
+		return frameIndex;
+	}
 
 	/**
 	 * Internal FlxFrame used to fake out current frame data for FlxSprite
