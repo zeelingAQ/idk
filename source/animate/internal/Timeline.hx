@@ -44,34 +44,17 @@ class Timeline implements IFlxDestroyable
 			_loadJson(timeline);
 	}
 
-	/**
-	 * Returns a layer based on name or index.
-	 *
-	 * @param layer Index ``Int`` or name ``String`` of the layer.
-	 * @return		The ``Layer`` found with that name or index, null if not found.
-	 */
 	public function getLayer(name:OneOfTwo<Int, String>):Null<Layer>
 	{
 		return (name is String) ? _layerMap.get(name) : layers[name];
 	}
 
-	/**
-	 * Applies a function to all the layers of the timeline.
-	 *
-	 * @param callback The ``Layer->Void`` function to call for all the existing layers.
-	 */
 	public function forEachLayer(callback:Layer->Void):Void
 	{
 		for (layer in layers)
 			callback(layer);
 	}
 
-	/**
-	 * Returns the frames through all the layers of a timeline at a specific frame index.
-	 * 
-	 * @param index Frame index ``Int`` to get the frames objects from.
-	 * @return		An array of all the ``Frame`` objects at a specific frame index.
-	 */
 	public function getFramesAtIndex(index:Int):Array<Frame>
 	{
 		var frames:Array<Frame> = [];
@@ -84,12 +67,6 @@ class Timeline implements IFlxDestroyable
 		return frames;
 	}
 
-	/**
-	 * Returns the elements through all the layers of a timeline at a specific frame index.
-	 * 
-	 * @param index Frame index ``Int`` to get the element objects from.
-	 * @return		An array of all the ``Element`` objects at a specific frame index.
-	 */
 	public function getElementsAtIndex(index:Int):Array<Element>
 	{
 		var elements:Array<Element> = [];
@@ -105,25 +82,11 @@ class Timeline implements IFlxDestroyable
 		return elements;
 	}
 
-	/**
-	 * Returns an array of all the elements at the current frame displayed on the timeline.
-	 * May be innacurate if theres more than one ``FlxAnimate`` object playing the same timeline.
-	 * 
-	 * For accuracy of your specific needs, I recommend using ``getElementsAtIndex`` more.
-	 *
-	 * @return An array of all the ``Element`` objects at the current frame.
-	 */
 	public function getCurrentElements():Array<Element>
 	{
 		return getElementsAtIndex(currentFrame);
 	}
 
-	/**
-	 * Returns the first frame label in the timeline at a specific frame index.
-	 * 
-	 * @param index Frame index ``Int`` to get the element objects from.
-	 * @return		Label ``String`` of the specific frame index, an empty string if not found.
-	 */
 	public function getFrameLabelAtIndex(index:Int):String
 	{
 		for (layer in layers)
@@ -135,12 +98,6 @@ class Timeline implements IFlxDestroyable
 		return "";
 	}
 
-	/**
-	 * Gets the list of indices of a frame label to be found from a timeline.
-	 *
-	 * @param label Frame label tag to find the indices of.
-	 * @return Array of ``Int`` indices of the frame label, empty if none were found.
-	 */
 	public function findFrameLabelIndices(label:String):Array<Int>
 	{
 		var foundFrames:Array<Int> = [];
@@ -166,14 +123,6 @@ class Timeline implements IFlxDestroyable
 		return foundFrames;
 	}
 
-	/**
-	 * Returns the top-left position of the timeline, based on it's bounds.
-	 * Useful as an offset value when migrating from a legacy bounds based project.
-	 *
-	 * @param result 			Optional, point where to store the origin data.
-	 * @param applyStageMatrix	Optional, if to apply the stage matrix scaling to the result bounds (needed to replicate legacy bounds).
-	 * @return 					A ``FlxPoint`` containing the origin point of the bounds top-left position.
-	 */
 	public function getBoundsOrigin(?result:FlxPoint, ?applyStageMatrix:Bool = false):FlxPoint
 	{
 		result ??= FlxPoint.get();
@@ -188,16 +137,6 @@ class Timeline implements IFlxDestroyable
 		return result;
 	}
 
-	/**
-	 * Returns the complete bounds of the timeline throught all the frames.
-	 *
-	 * @param includeHiddenLayers	If to include in the calculation layers currently invisible.
-	 * @param rect					Optional, the rectangle used to input the final calculated values.
-	 * @param matrix				Optional, the matrix to apply to the bounds calculation.
-	 * @param includeFilters		Optional, if to include filtered bounds in the calculation or use the unfilitered ones (true to Flash's bounds).
-	 *								But, in case the user changed something from the Texture Atlas, a recache may be needed.
-	 * @return						A ``FlxRect`` with the complete timeline's bounds, empty if no elements were found.
-	 */
 	public function getWholeBounds(?includeHiddenLayers:Bool = false, ?rect:FlxRect, ?matrix:FlxMatrix, ?includeFilters:Bool = true):FlxRect
 	{
 		var first:Bool = true;
@@ -227,18 +166,6 @@ class Timeline implements IFlxDestroyable
 
 	var _cachedBounds:Map<Int, FlxRect> = [];
 
-	/**
-	 * Returns the bounds of the timeline at a specific frame index.
-	 *
-	 * @param frameIndex			The frame index where to calculate the bounds from.
-	 * @param includeHiddenLayers	If to include in the calculation layers currently invisible.
-	 * @param rect					Optional, the rectangle used to input the final calculated values.
-	 * @param matrix				Optional, the matrix to apply to the bounds calculation.
-	 * @param includeFilters		Optional, if to include filtered bounds in the calculation or use the unfilitered ones (true to Flash's bounds).
-	 * @param useCachedBounds		Optional, if to use previously cached bounds. Greatly improves the performance of the function, but wont work
-	 * 								if something from the Texture Atlas was manually changed by the user in code (i.e. frames, matrices, etc)
-	 * @return						A ``FlxRect`` with the timeline's bounds at an index, empty if no elements were found.
-	 */
 	public function getBounds(frameIndex:Int, ?includeHiddenLayers:Bool = false, ?rect:FlxRect, ?matrix:FlxMatrix, ?includeFilters:Bool = true,
 			?useCachedBounds:Bool = false):FlxRect
 	{
@@ -262,12 +189,10 @@ class Timeline implements IFlxDestroyable
 			if (!layer.visible && !includeHiddenLayers)
 				continue;
 
-			// Get frame at the bounds index
 			var frame = layer.getFrameAtIndex(frameIndex);
 			if (frame == null || frame.elements.length <= 0)
 				continue;
 
-			// Get the bounds of the frame at the index
 			var frameBounds = frame.getBounds((frameIndex - frame.index), tmpRect, null, includeFilters, useCachedBounds);
 			if (frameBounds.isEmpty)
 				continue;
@@ -290,12 +215,6 @@ class Timeline implements IFlxDestroyable
 		return rect;
 	}
 
-	/**
-	 * Use this function to clear the currently cached timeline bounds.
-	 *
-	 * Some functions like ``getWholeBounds`` require the use of cached bounds to greatly save on performance.
-	 * However, if the user changed something about the Texture Atlas, a recache of those bounds may be neccesary.
-	 */
 	public function clearBoundsCache():Void
 	{
 		for (i in _cachedBounds.iterator())
@@ -336,6 +255,9 @@ class Timeline implements IFlxDestroyable
 
 	public function draw(camera:FlxCamera, parentMatrix:FlxMatrix, ?transform:ColorTransform, ?blend:BlendMode, ?antialiasing:Bool, ?shader:FlxShader)
 	{
+		if (currentFrame < 0)
+			return;
+
 		var i = layers.length - 1;
 		while (i >= 0)
 		{

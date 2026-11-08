@@ -89,14 +89,11 @@ class SymbolInstance extends AnimateElement<SymbolInstanceJson>
 		_setColorTransform(color.redFloat, color.greenFloat, color.blueFloat, 1, 0, 0, 0, 0);
 	}
 
-	/**
-	 * Returns the timeline frame index needed to be rendered at a specific frame, while taking loop types into consideration.
-	 * @param index 		Index of the timeline to render.
-	 * @param frameIndex 	Optional, relative frame index of the current keyframe the symbol instance is stored at.
-	 * @return				Found frame index for rendering at a specific frame.
-	 */
 	public function getFrameIndex(index:Int, frameIndex:Int = 0):Int
 	{
+		if (libraryItem == null)
+			return firstFrame;
+
 		var frameIndex = firstFrame + (index - frameIndex);
 		var frameCount = libraryItem.timeline.frameCount;
 
@@ -105,7 +102,8 @@ class SymbolInstance extends AnimateElement<SymbolInstanceJson>
 			case LoopType.LOOP:
 				frameIndex = FlxMath.wrap(frameIndex, 0, frameCount - 1);
 			case LoopType.PLAY_ONCE:
-				frameIndex = FlxMath.minInt(frameIndex, frameCount - 1);
+				if (frameIndex >= frameCount)
+					frameIndex = -1;
 			case LoopType.SINGLE_FRAME:
 				frameIndex = firstFrame;
 		}
@@ -113,10 +111,6 @@ class SymbolInstance extends AnimateElement<SymbolInstanceJson>
 		return frameIndex;
 	}
 
-	/**
-	 * Method used internally to check if a symbol has simple rendering (one frame).
-	 * @return If the symbol has simple rendering or not.
-	 */
 	public function isSimpleSymbol():Bool
 	{
 		var timeline = libraryItem.timeline;
@@ -127,8 +121,6 @@ class SymbolInstance extends AnimateElement<SymbolInstanceJson>
 		if (loopType == SINGLE_FRAME)
 			return true;
 
-		// TODO: more indepth check through layers
-
 		return false;
 	}
 
@@ -136,12 +128,14 @@ class SymbolInstance extends AnimateElement<SymbolInstanceJson>
 
 	override function getBounds(frameIndex:Int, ?rect:FlxRect, ?matrix:FlxMatrix, ?includeFilters:Bool = true, ?useCachedBounds:Bool = false):FlxRect
 	{
-		// TODO: look into this
-		// Patch-on fix for a really weird fucking bug
-		if (libraryItem != null && libraryItem.timeline.parent.existsSymbol(symbolName))
+		rect ??= FlxRect.get();
+
+		if (libraryItem == null)
+			return rect.set(0, 0, 0, 0);
+
+		if (libraryItem.timeline.parent != null && libraryItem.timeline.parent.existsSymbol(symbolName))
 			libraryItem = libraryItem.timeline.parent.getSymbol(symbolName);
 
-		// Prepare the bounds matrix
 		var targetMatrix:FlxMatrix;
 		if (matrix != null)
 		{
@@ -154,14 +148,16 @@ class SymbolInstance extends AnimateElement<SymbolInstanceJson>
 			targetMatrix = this.matrix;
 		}
 
-		// Get the bounds of the symbol item timeline
 		return libraryItem.timeline.getBounds(getFrameIndex(frameIndex, 0), null, rect, targetMatrix, includeFilters, useCachedBounds);
 	}
 
 	override function draw(camera:FlxCamera, index:Int, frameIndex:Int, parentMatrix:FlxMatrix, ?transform:ColorTransform, ?blend:BlendMode,
 			?antialiasing:Bool, ?shader:FlxShader):Void
 	{
-		if (isColored) // Concat symbol's color to the current color transform
+		if (libraryItem == null)
+			return;
+
+		if (isColored)
 		{
 			var t = this.transform;
 
@@ -191,6 +187,9 @@ class SymbolInstance extends AnimateElement<SymbolInstanceJson>
 	function _drawTimeline(camera:FlxCamera, index:Int, frameIndex:Int, parentMatrix:FlxMatrix, transform:Null<ColorTransform>, blend:Null<BlendMode>,
 			antialiasing:Null<Bool>, shader:Null<FlxShader>)
 	{
+		if (libraryItem == null)
+			return;
+
 		_mat.copyFrom(matrix);
 		_mat.concat(parentMatrix);
 		libraryItem.timeline.currentFrame = getFrameIndex(index, frameIndex);
