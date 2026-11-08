@@ -284,11 +284,9 @@ class FlxAnimateController extends FlxAnimationController
 
 			_animate.timeline = curAnim.timeline;
 			
-			// 关键修改：使用 frames[frame] 获取绝对帧号，而不是直接用 frame
-			var absoluteFrame:Int = (curAnim.frames != null && curAnim.frames.length > 0) ? curAnim.frames[frame] : frame;
-			_animate.timeline.currentFrame = absoluteFrame;
+			_animate.timeline.currentFrame = frame;
+			_animate.timeline.signalFrameChange(frame, this);
 			
-			_animate.timeline.signalFrameChange(absoluteFrame, this);
 			if (_animate.useRenderTexture)
 				_animate._renderTextureDirty = true;
 			frameIndex = frame;
