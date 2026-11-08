@@ -105,7 +105,10 @@ class SymbolInstance extends AnimateElement<SymbolInstanceJson>
 		case LoopType.LOOP:
 			frameIndex = FlxMath.wrap(frameIndex, 0, frameCount - 1);
 		case LoopType.PLAY_ONCE:
-			frameIndex = FlxMath.minInt(frameIndex, frameCount - 1);
+			// 只要没超出，就正常播；一旦播完最后一帧，直接返回 -1（不渲染隐藏）
+			if (frameIndex >= frameCount) {
+				frameIndex = -1; 
+			}
 		case LoopType.SINGLE_FRAME:
 			frameIndex = firstFrame;
 	}
