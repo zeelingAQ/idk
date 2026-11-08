@@ -1,269 +1,407 @@
-package animate.internal.elements;
+package animate.internal;
 
-import animate.FlxAnimateJson;
+import animate.FlxAnimateJson.TimelineJson;
 import animate.internal.elements.Element;
-import animate.internal.filters.Blend;
 import flixel.FlxCamera;
-import flixel.math.FlxMath;
 import flixel.math.FlxMatrix;
 import flixel.math.FlxPoint;
 import flixel.math.FlxRect;
 import flixel.system.FlxAssets.FlxShader;
-import flixel.util.FlxColor;
 import flixel.util.FlxDestroyUtil;
+import flixel.util.typeLimit.OneOfTwo;
 import openfl.display.BlendMode;
 import openfl.geom.ColorTransform;
 
-using flixel.util.FlxColorTransformUtil;
+using StringTools;
 
-class SymbolInstance extends AnimateElement<SymbolInstanceJson>
+@:access(openfl.geom.Point)
+@:access(openfl.geom.Matrix)
+@:access(flixel.graphics.frames.FlxFrame)
+@:allow(animate.FlxAnimate)
+class Timeline implements IFlxDestroyable
 {
 	public var libraryItem:SymbolItem;
-	public var blend:BlendMode;
-	public var firstFrame:Int;
-	public var loopType:LoopType;
-	public var symbolName(get, never):String;
-	public var transformationPoint:FlxPoint;
+	public var layers:Array<Layer>;
+	public var name:String;
+	public var currentFrame:Int;
+	public var frameCount:Int;
+	public var parent(default, null):FlxAnimateFrames;
 
-	var isColored:Bool;
-	var transform:ColorTransform;
-	var _transform:ColorTransform;
+	var _layerMap:Map<String, Layer>;
+	var _bounds:FlxRect;
 
-	public function new(?data:SymbolInstanceJson, ?parent:FlxAnimateFrames, ?frame:Frame)
+	public function new(?timeline:TimelineJson, parent:FlxAnimateFrames, ?name:String)
 	{
-		super(data, parent, frame);
-		this.elementType = GRAPHIC;
+		this.name = name ?? "";
+		this.layers = [];
+		this.currentFrame = 0;
+		this.parent = parent;
 
-		if (data == null)
+		_layerMap = [];
+		_bounds = FlxRect.get();
+
+		if (timeline != null)
+			_loadJson(timeline);
+	}
+
+	public function getLayer(name:OneOfTwo<Int, String>):Null<Layer>
+	{
+		return (name is String) ? _layerMap.get(name) : layers[name];
+	}
+
+	public function forEachLayer(callback:Layer->Void):Void
+	{
+		for (layer in layers)
+			callback(layer);
+	}
+
+	public function getFramesAtIndex(index:Int):Array<Frame>
+	{
+		var frames:Array<Frame> = [];
+		for (layer in layers)
+		{
+			var frame = layer.getFrameAtIndex(index);
+			if (frame != null)
+				frames.push(frame);
+		}
+		return frames;
+	}
+
+	public function getElementsAtIndex(index:Int):Array<Element>
+	{
+		var elements:Array<Element> = [];
+		for (layer in layers)
+		{
+			var frame = layer.getFrameAtIndex(index);
+			if (frame != null)
+			{
+				for (element in frame.elements)
+					elements.push(element);
+			}
+		}
+		return elements;
+	}
+
+	public function getCurrentElements():Array<Element>
+	{
+		return getElementsAtIndex(currentFrame);
+	}
+
+	public function getFrameLabelAtIndex(index:Int):String
+	{
+		for (layer in layers)
+		{
+			var frame = layer.getFrameAtIndex(index);
+			if (frame != null && frame.name.length > 0)
+				return frame.name;
+		}
+		return "";
+	}
+
+	public function findFrameLabelIndices(label:String):Array<Int>
+	{
+		var foundFrames:Array<Int> = [];
+		var hasFoundLabel:Bool = false;
+
+		for (layer in layers)
+		{
+			for (frame in layer.frames)
+			{
+				if (frame.name.rtrim() == label)
+				{
+					hasFoundLabel = true;
+
+					for (i in 0...frame.duration)
+						foundFrames.push(frame.index + i);
+				}
+			}
+
+			if (hasFoundLabel)
+				break;
+		}
+
+		return foundFrames;
+	}
+
+	public function getBoundsOrigin(?result:FlxPoint, ?applyStageMatrix:Bool = false):FlxPoint
+	{
+		result ??= FlxPoint.get();
+		result.set(_bounds.x, _bounds.y);
+
+		if (applyStageMatrix && parent?.matrix != null)
+		{
+			result.x *= parent.matrix.a;
+			result.y *= parent.matrix.d;
+		}
+
+		return result;
+	}
+
+	public function getWholeBounds(?includeHiddenLayers:Bool = false, ?rect:FlxRect, ?matrix:FlxMatrix, ?includeFilters:Bool = true):FlxRect
+	{
+		var first:Bool = true;
+		var tmpRect:FlxRect = FlxRect.get();
+		rect ??= FlxRect.get();
+
+		for (i in 0...this.frameCount)
+		{
+			var frameBounds = getBounds(i, includeHiddenLayers, tmpRect, null, includeFilters, true);
+			if (frameBounds.isEmpty)
+				continue;
+
+			if (first)
+			{
+				rect.copyFrom(frameBounds);
+				first = false;
+			}
+			else
+				rect = expandBounds(rect, frameBounds);
+		}
+
+		applyMatrixToRect(rect, matrix);
+
+		tmpRect.put();
+		return rect;
+	}
+
+	var _cachedBounds:Map<Int, FlxRect> = [];
+
+	public function getBounds(frameIndex:Int, ?includeHiddenLayers:Bool = false, ?rect:FlxRect, ?matrix:FlxMatrix, ?includeFilters:Bool = true,
+			?useCachedBounds:Bool = false):FlxRect
+	{
+		rect ??= FlxRect.get();
+		rect.set();
+
+		if (useCachedBounds)
+		{
+			if (_cachedBounds.exists(frameIndex))
+			{
+				rect.copyFrom(_cachedBounds.get(frameIndex));
+				return applyMatrixToRect(rect, matrix);
+			}
+		}
+
+		var first:Bool = true;
+		var tmpRect:FlxRect = FlxRect.get();
+
+		for (layer in layers)
+		{
+			if (!layer.visible && !includeHiddenLayers)
+				continue;
+
+			var frame = layer.getFrameAtIndex(frameIndex);
+			if (frame == null || frame.elements.length <= 0)
+				continue;
+
+			var frameBounds = frame.getBounds((frameIndex - frame.index), tmpRect, null, includeFilters, useCachedBounds);
+			if (frameBounds.isEmpty)
+				continue;
+
+			if (first)
+			{
+				first = false;
+				rect.copyFrom(frameBounds);
+			}
+			else
+				expandBounds(rect, frameBounds);
+		}
+
+		applyMatrixToRect(rect, matrix);
+
+		if (useCachedBounds)
+			_cachedBounds.set(frameIndex, rect.copyTo(FlxRect.get()));
+
+		tmpRect.put();
+		return rect;
+	}
+
+	public function clearBoundsCache():Void
+	{
+		for (i in _cachedBounds.iterator())
+			i.put();
+		_cachedBounds.clear();
+	}
+
+	public inline function iterator()
+	{
+		return layers.iterator();
+	}
+
+	public inline function keyValueIterator()
+	{
+		return layers.keyValueIterator();
+	}
+
+	@:allow(animate.FlxAnimateController)
+	private function signalFrameChange(frameIndex:Int, animation:FlxAnimateController):Void
+	{
+		for (layer in layers)
+		{
+			var frame = layer.getFrameAtIndex(frameIndex);
+			if (frame != null)
+			{
+				var isKeyFrame:Bool = (frame.index == frameIndex);
+				if (isKeyFrame)
+				{
+					if (frame.sound != null)
+						frame.sound.play(true);
+
+					if (frame.name.length > 0)
+						animation.onFrameLabel.dispatch(frame.name);
+				}
+			}
+		}
+	}
+
+	public function draw(camera:FlxCamera, parentMatrix:FlxMatrix, ?transform:ColorTransform, ?blend:BlendMode, ?antialiasing:Bool, ?shader:FlxShader)
+	{
+		// 修复隐藏帧导致的崩溃
+		if (currentFrame < 0)
 			return;
 
-		this.libraryItem = parent.getSymbol(data.SN);
-		this.matrix = data.MX.toMatrix();
-		this.firstFrame = data.FF;
-		this.isColored = false;
-
-		this.loopType = switch (data.LP)
+		var i = layers.length - 1;
+		while (i >= 0)
 		{
-			case "PO" | "playonce": LoopType.PLAY_ONCE;
-			case "SF" | "singleframe": LoopType.SINGLE_FRAME;
-			default: LoopType.LOOP;
-		}
+			var layer = layers[i--];
+			if (!layer.visible)
+				continue;
 
-		var trp:Null<TransformationPointJson> = data.TRP;
-		this.transformationPoint = FlxPoint.get(trp?.x ?? 0.0, trp?.y ?? 0.0);
+			var frame = layer.getFrameAtIndex(currentFrame);
+			if (frame == null)
+				continue;
 
-		if (libraryItem == null)
-			visible = false;
-
-		var color = data.C;
-		if (color != null)
-		{
-			switch (color.M)
-			{
-				case "AD" | "Advanced":
-					setColorTransform(color.RM, color.GM, color.BM, color.AM, color.RO, color.GO, color.BO, color.AO);
-				case "CA" | "Alpha":
-					setColorTransform(1.0, 1.0, 1.0, color.AM, 0.0, 0.0, 0.0, 0.0);
-				case "CBRT" | "Brightness":
-					var brightness = color.BRT;
-					var colorMult = 1.0 - Math.abs(brightness);
-					var colorOff = brightness >= 0.0 ? brightness * 255.0 : 0.0;
-					setColorTransform(colorMult, colorMult, colorMult, 1.0, colorOff, colorOff, colorOff, 0.0);
-				case "T" | "Tint":
-					var tint:FlxColor = FlxColor.fromString(color.TC);
-					var tintMult:Float = color.TM;
-					var mult:Float = 1.0 - tintMult;
-					setColorTransform(mult, mult, mult, 1.0, tint.red * tintMult, tint.green * tintMult, tint.blue * tintMult, 0.0);
-			}
+			frame.draw(camera, currentFrame, parentMatrix, transform, blend, antialiasing, shader);
 		}
 	}
 
-	public extern overload inline function setColorTransform(rMult:Float = 1, gMult:Float = 1, bMult:Float = 1, aMult:Float = 1, rOffset:Float = 0,
-			gOffset:Float = 0, bOffset:Float = 0, aOffset:Float = 0):Void
+	function _loadJson(timeline:TimelineJson)
 	{
-		_setColorTransform(rMult, gMult, bMult, aMult, rOffset, gOffset, bOffset, aOffset);
-	}
+		var layersJson = timeline.L;
 
-	public extern overload inline function setColorTransform(color:FlxColor):Void
-	{
-		_setColorTransform(color.redFloat, color.greenFloat, color.blueFloat, 1, 0, 0, 0, 0);
-	}
-
-	/**
-	 * Returns the timeline frame index needed to be rendered at a specific frame, while taking loop types into consideration.
-	 * @param index 		Index of the timeline to render.
-	 * @param frameIndex 	Optional, relative frame index of the current keyframe the symbol instance is stored at.
-	 * @return				Found frame index for rendering at a specific frame.
-	 */
-	public function getFrameIndex(index:Int, frameIndex:Int = 0):Int
-{
-	var frameIndex = firstFrame + (index - frameIndex);
-	var frameCount = libraryItem.timeline.frameCount;
-
-	switch (loopType)
-	{
-		case LoopType.LOOP:
-			frameIndex = FlxMath.wrap(frameIndex, 0, frameCount - 1);
-		case LoopType.PLAY_ONCE:
-			// 只要没超出，就正常播；一旦播完最后一帧，直接返回 -1（不渲染隐藏）
-			if (frameIndex >= frameCount) {
-				frameIndex = -1; 
-			}
-		case LoopType.SINGLE_FRAME:
-			frameIndex = firstFrame;
-	}
-	return frameIndex;
-}
-
-	/**
-	 * Method used internally to check if a symbol has simple rendering (one frame).
-	 * @return If the symbol has simple rendering or not.
-	 */
-	public function isSimpleSymbol():Bool
-	{
-		var timeline = libraryItem.timeline;
-
-		if (timeline.frameCount == 1)
-			return true;
-
-		if (loopType == SINGLE_FRAME)
-			return true;
-
-		// TODO: more indepth check through layers
-
-		return false;
-	}
-
-	var _tmpMatrix:FlxMatrix = new FlxMatrix();
-
-	override function getBounds(frameIndex:Int, ?rect:FlxRect, ?matrix:FlxMatrix, ?includeFilters:Bool = true, ?useCachedBounds:Bool = false):FlxRect
-{
-	rect ??= FlxRect.get();
-
-	if (libraryItem == null)
-		return rect.set(0, 0, 0, 0);
-
-	// TODO: look into this
-		// Patch-on fix for a really weird fucking bug
-		if (libraryItem != null && libraryItem.timeline.parent.existsSymbol(symbolName))
-			libraryItem = libraryItem.timeline.parent.getSymbol(symbolName);
-
-		// Prepare the bounds matrix
-		var targetMatrix:FlxMatrix;
-		if (matrix != null)
+		for (layerJson in layersJson)
 		{
-			_tmpMatrix.copyFrom(this.matrix);
-			_tmpMatrix.concat(matrix);
-			targetMatrix = _tmpMatrix;
-		}
-		else
-		{
-			targetMatrix = this.matrix;
+			var layer = new Layer(this);
+			layer.name = layerJson.LN;
+			layers.push(layer);
+			_layerMap.set(layer.name, layer);
 		}
 
-		// Get the bounds of the symbol item timeline
-		return libraryItem.timeline.getBounds(getFrameIndex(frameIndex, 0), null, rect, targetMatrix, includeFilters, useCachedBounds);
-	}
-
-	override function draw(camera:FlxCamera, index:Int, frameIndex:Int, parentMatrix:FlxMatrix, ?transform:ColorTransform, ?blend:BlendMode,
-			?antialiasing:Bool, ?shader:FlxShader):Void
-{
-	if (libraryItem == null)
-		return;
-
-	if (isColored) // Concat symbol's color to the current color transform
+		for (i in 0...layersJson.length)
 		{
-			var t = this.transform;
+			var layer = layers[i];
+			layer._loadJson(layersJson[i], parent, i, layers);
 
-			_transform.redMultiplier = t.redMultiplier;
-			_transform.greenMultiplier = t.greenMultiplier;
-			_transform.blueMultiplier = t.blueMultiplier;
-			_transform.alphaMultiplier = t.alphaMultiplier;
-
-			_transform.redOffset = t.redOffset;
-			_transform.greenOffset = t.greenOffset;
-			_transform.blueOffset = t.blueOffset;
-			_transform.alphaOffset = t.alphaOffset;
-
-			if (transform != null)
-				_transform.concat(transform);
-
-			transform = _transform;
-
-			if (transform.alphaMultiplier <= 0)
-				return;
+			if (layer.frameCount > frameCount)
+				frameCount = layer.frameCount;
 		}
 
-		var b = Blend.resolve(this.blend, blend);
-		_drawTimeline(camera, index, frameIndex, parentMatrix, transform, b, antialiasing, shader);
+		_bounds = getWholeBounds(false, _bounds);
 	}
 
-	function _drawTimeline(camera:FlxCamera, index:Int, frameIndex:Int, parentMatrix:FlxMatrix, transform:Null<ColorTransform>, blend:Null<BlendMode>,
-		antialiasing:Null<Bool>, shader:Null<FlxShader>)
-{
-	if (libraryItem == null)
-		return;
-
-	_mat.copyFrom(matrix);
-		_mat.concat(parentMatrix);
-		libraryItem.timeline.currentFrame = getFrameIndex(index, frameIndex);
-		libraryItem.timeline.draw(camera, _mat, transform, blend, antialiasing, shader);
-	}
-
-	function _setColorTransform(rMult:Float, gMult:Float, bMult:Float, aMult:Float, rOffset:Float, gOffset:Float, bOffset:Float, aOffset:Float)
+	public function destroy():Void
 	{
-		if (transform == null)
-			transform = new ColorTransform();
-		if (_transform == null)
-			_transform = new ColorTransform();
-
-		transform.redMultiplier = rMult;
-		transform.greenMultiplier = gMult;
-		transform.blueMultiplier = bMult;
-		transform.alphaMultiplier = aMult;
-
-		transform.redOffset = rOffset;
-		transform.greenOffset = gOffset;
-		transform.blueOffset = bOffset;
-		transform.alphaOffset = aOffset;
-
-		isColored = (transform.hasRGBAMultipliers() || transform.hasRGBAOffsets());
-	}
-
-	inline function get_symbolName():String
-	{
-		return libraryItem?.name;
-	}
-
-	override function destroy()
-	{
-		super.destroy();
-		transformationPoint = FlxDestroyUtil.put(transformationPoint);
+		parent = null;
 		libraryItem = null;
-		transform = null;
-		_transform = null;
-		_tmpMatrix = null;
-	}
+		layers = FlxDestroyUtil.destroyArray(layers);
+		_bounds = FlxDestroyUtil.put(_bounds);
+		_layerMap = null;
 
-	public function toString():String
-	{
-		return '{name: ${libraryItem?.name}, matrix: $matrix}';
-	}
-}
-
-enum abstract LoopType(Int) to Int
-{
-	var LOOP;
-	var PLAY_ONCE;
-	var SINGLE_FRAME;
-
-	public function toString():String
-	{
-		return switch (cast this : LoopType)
+		if (_cachedBounds != null)
 		{
-			case LOOP: "loop";
-			case PLAY_ONCE: "play_once";
-			case SINGLE_FRAME: "single_frame";
+			clearBoundsCache();
+			_cachedBounds = null;
 		}
+	}
+
+	public function toString():String
+	{
+		return '{name: $name, frameCount: $frameCount}';
+	}
+
+	@:noCompletion
+	public static inline function expandBounds(baseBounds:FlxRect, expandedBounds:FlxRect):FlxRect
+	{
+		var x = Math.min(baseBounds.x, expandedBounds.x);
+		var y = Math.min(baseBounds.y, expandedBounds.y);
+		var w = Math.max(baseBounds.right, expandedBounds.right) - x;
+		var h = Math.max(baseBounds.bottom, expandedBounds.bottom) - y;
+
+		baseBounds.set(x, y, w, h);
+		return baseBounds;
+	}
+
+	@:noCompletion
+	public static inline function maskBounds(masked:FlxRect, masker:FlxRect):FlxRect
+	{
+		if (masker.isEmpty)
+			return masked;
+
+		var x1:Float = Math.max(masked.x, masker.x);
+		var y1:Float = Math.max(masked.y, masker.y);
+		var x2:Float = Math.min(masked.right, masker.right);
+		var y2:Float = Math.min(masked.bottom, masker.bottom);
+
+		if (x2 <= x1 || y2 <= y1)
+		{
+			masked.set(0.0, 0.0, 0.0, 0.0);
+			return masked;
+		}
+
+		masked.set(x1, y1, x2 - x1, y2 - y1);
+		return masked;
+	}
+
+	@:noCompletion
+	public static function applyMatrixToRect(rect:FlxRect, ?m:FlxMatrix):FlxRect
+	{
+		if (m == null)
+			return rect;
+
+		if (rect.isEmpty)
+			return rect.set(m.tx, m.ty, 0, 0);
+
+		var tx0 = m.a * rect.left + m.c * rect.top;
+		var tx1 = tx0;
+		var ty0 = m.b * rect.left + m.d * rect.top;
+		var ty1 = ty0;
+
+		var tx = m.a * rect.right + m.c * rect.top;
+		var ty = m.b * rect.right + m.d * rect.top;
+
+		if (tx < tx0)
+			tx0 = tx;
+		if (ty < ty0)
+			ty0 = ty;
+		if (tx > tx1)
+			tx1 = tx;
+		if (ty > ty1)
+			ty1 = ty;
+
+		tx = m.a * rect.right + m.c * rect.bottom;
+		ty = m.b * rect.right + m.d * rect.bottom;
+
+		if (tx < tx0)
+			tx0 = tx;
+		if (ty < ty0)
+			ty0 = ty;
+		if (tx > tx1)
+			tx1 = tx;
+		if (ty > ty1)
+			ty1 = ty;
+
+		tx = m.a * rect.left + m.c * rect.bottom;
+		ty = m.b * rect.left + m.d * rect.bottom;
+
+		if (tx < tx0)
+			tx0 = tx;
+		if (ty < ty0)
+			ty0 = ty;
+		if (tx > tx1)
+			tx1 = tx;
+		if (ty > ty1)
+			ty1 = ty;
+
+		rect.set(tx0 + m.tx, ty0 + m.ty, tx1 - tx0, ty1 - ty0);
+		return rect;
 	}
 }
