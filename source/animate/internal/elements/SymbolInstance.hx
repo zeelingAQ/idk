@@ -97,38 +97,19 @@ class SymbolInstance extends AnimateElement<SymbolInstanceJson>
 	 */
 	public function getFrameIndex(index:Int, frameIndex:Int = 0):Int
 {
-	if (libraryItem == null)
-		return firstFrame;
-
-	var timeline = libraryItem.timeline;
-	var effectiveFrames = timeline.getEffectiveFrameCount();
-	if (effectiveFrames <= 0)
-		effectiveFrames = timeline.frameCount;
-
-	var result = firstFrame + (index - frameIndex);
+	var frameIndex = firstFrame + (index - frameIndex);
+	var frameCount = libraryItem.timeline.frameCount;
 
 	switch (loopType)
 	{
 		case LoopType.LOOP:
-			if (effectiveFrames > 0)
-				result = FlxMath.wrap(result, 0, effectiveFrames - 1);
-
+			frameIndex = FlxMath.wrap(frameIndex, 0, frameCount - 1);
 		case LoopType.PLAY_ONCE:
-			if (effectiveFrames > 0)
-			{
-				if (firstFrame >= effectiveFrames)
-					result = effectiveFrames - 1;
-				else
-					result = FlxMath.minInt(result, effectiveFrames - 1);
-			}
-
+			frameIndex = FlxMath.minInt(frameIndex, frameCount - 1);
 		case LoopType.SINGLE_FRAME:
-			result = firstFrame;
-			if (effectiveFrames > 0 && result >= effectiveFrames)
-				result = effectiveFrames - 1;
+			frameIndex = firstFrame;
 	}
-
-	return result;
+	return frameIndex;
 }
 
 	/**
