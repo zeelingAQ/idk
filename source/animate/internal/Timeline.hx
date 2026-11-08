@@ -29,7 +29,6 @@ class Timeline implements IFlxDestroyable
 
 	var _layerMap:Map<String, Layer>;
 	var _bounds:FlxRect;
-	var _cachedEffectiveFrameCount:Int = -1;
 
 	public function new(?timeline:TimelineJson, parent:FlxAnimateFrames, ?name:String)
 	{
@@ -43,61 +42,6 @@ class Timeline implements IFlxDestroyable
 
 		if (timeline != null)
 			_loadJson(timeline);
-	}
-
-	/**
-	 * Returns the number of frames up to the last frame that contains visible elements.
-	 */
-	public function getEffectiveFrameCount():Int
-	{
-		if (_cachedEffectiveFrameCount >= 0)
-			return _cachedEffectiveFrameCount;
-
-		if (frameCount <= 0)
-		{
-			_cachedEffectiveFrameCount = 0;
-			return 0;
-		}
-
-		var lastNonEmpty:Int = -1;
-		for (i in 0...frameCount)
-		{
-			if (isFrameNonEmpty(i))
-			{
-				lastNonEmpty = i;
-				break;
-			}
-		}
-
-		if (lastNonEmpty < 0)
-		{
-			_cachedEffectiveFrameCount = frameCount;
-			return _cachedEffectiveFrameCount;
-		}
-
-		var last:Int = frameCount - 1;
-		while (last > lastNonEmpty && !isFrameNonEmpty(last))
-			last--;
-
-		_cachedEffectiveFrameCount = last + 1;
-		return _cachedEffectiveFrameCount;
-	}
-
-	public function isFrameNonEmpty(index:Int):Bool
-	{
-		for (layer in layers)
-		{
-			if (!layer.visible) continue;
-			var f = layer.getFrameAtIndex(index);
-			if (f != null && f.elements.length > 0)
-				return true;
-		}
-		return false;
-	}
-
-	public function clearEffectiveFrameCountCache():Void
-	{
-		_cachedEffectiveFrameCount = -1;
 	}
 
 	public function getLayer(name:OneOfTwo<Int, String>):Null<Layer>
@@ -360,7 +304,6 @@ class Timeline implements IFlxDestroyable
 		layers = FlxDestroyUtil.destroyArray(layers);
 		_bounds = FlxDestroyUtil.put(_bounds);
 		_layerMap = null;
-		_cachedEffectiveFrameCount = -1;
 
 		if (_cachedBounds != null)
 		{

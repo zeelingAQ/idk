@@ -17,6 +17,7 @@ class Layer implements IFlxDestroyable
 	public var parentLayer:Null<Layer>;
 
 	var frameIndices:Null<Array<Int>>;
+	var _effectiveFrameCount:Int = -1;
 
 	public function new(?timeline:Timeline)
 	{
@@ -26,6 +27,32 @@ class Layer implements IFlxDestroyable
 		this.timeline = timeline;
 		this.name = "";
 		this.layerType = NORMAL;
+	}
+
+	public function getEffectiveFrameCount():Int
+	{
+		if (_effectiveFrameCount >= 0)
+			return _effectiveFrameCount;
+
+		if (frameCount <= 0)
+			return _effectiveFrameCount = 0;
+
+		var last:Int = frameCount - 1;
+		while (last >= 0)
+		{
+			var frame = getFrameAtIndex(last);
+			if (frame != null && frame.elements.length > 0)
+				break;
+			last--;
+		}
+
+		_effectiveFrameCount = (last >= 0) ? last + 1 : frameCount;
+		return _effectiveFrameCount;
+	}
+
+	public function clearEffectiveFrameCountCache():Void
+	{
+		_effectiveFrameCount = -1;
 	}
 
 	public function forEachFrame(callback:Frame->Void)
@@ -60,9 +87,7 @@ class Layer implements IFlxDestroyable
 
 		keyframe.elements = lastFrame.elements.copy();
 		keyframe.name = lastFrame.name;
-
-		if (timeline != null)
-			timeline.clearEffectiveFrameCountCache();
+		clearEffectiveFrameCountCache();
 	}
 
 	public function setBlankKeyframe(index:Int)
@@ -81,9 +106,7 @@ class Layer implements IFlxDestroyable
 		frames.insert(frames.indexOf(lastFrame) + 1, keyframe);
 		for (i in 0...keyframe.duration)
 			frameIndices[index + i] = frames.length - 1;
-
-		if (timeline != null)
-			timeline.clearEffectiveFrameCountCache();
+		clearEffectiveFrameCountCache();
 	}
 
 	public function getBounds(frameIndex:Int, ?rect:FlxRect, ?matrix:FlxMatrix, ?includeFilters:Bool = true, ?useCachedBounds:Bool = false):FlxRect

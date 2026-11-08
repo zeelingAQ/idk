@@ -84,7 +84,7 @@ class Frame implements IFlxDestroyable
 		if (layer != null && layer.timeline != null)
 		{
 			layer.timeline.parent.setSymbolDirty(layer.timeline.name);
-			layer.timeline.clearEffectiveFrameCountCache();
+			layer.clearEffectiveFrameCountCache();
 		}
 	}
 

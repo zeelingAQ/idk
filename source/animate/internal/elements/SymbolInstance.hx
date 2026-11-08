@@ -95,11 +95,26 @@ class SymbolInstance extends AnimateElement<SymbolInstanceJson>
 			return firstFrame;
 
 		var timeline = libraryItem.timeline;
-		var effectiveFrames = timeline.getEffectiveFrameCount();
 		var actualFrameCount = timeline.frameCount;
-
-		if (effectiveFrames <= 0 || effectiveFrames > actualFrameCount)
-			effectiveFrames = actualFrameCount;
+		var effectiveFrames = actualFrameCount; // 默认用总帧数
+		
+		// 遍历 timeline 里的所有 Layer，找出最大的有效帧数
+		if (timeline.layers != null && timeline.layers.length > 0)
+		{
+			var maxLayerEffective = 0;
+			for (l in timeline.layers)
+			{
+				if (l.visible)
+				{
+					var le = l.getEffectiveFrameCount();
+					if (le > maxLayerEffective) maxLayerEffective = le;
+				}
+			}
+			if (maxLayerEffective > 0 && maxLayerEffective <= actualFrameCount)
+			{
+				effectiveFrames = maxLayerEffective;
+			}
+		}
 
 		var result = firstFrame + (index - frameIndex);
 
@@ -111,7 +126,7 @@ class SymbolInstance extends AnimateElement<SymbolInstanceJson>
 
 			case LoopType.PLAY_ONCE:
 				if (effectiveFrames > 0 && result >= effectiveFrames)
-					result = -1;
+					result = -1; // 隐藏，防止卡在空帧上
 
 			case LoopType.SINGLE_FRAME:
 				result = firstFrame;
