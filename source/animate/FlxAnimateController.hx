@@ -270,32 +270,36 @@ class FlxAnimateController extends FlxAnimationController
 	}
 
 	override function set_frameIndex(frame:Int):Int
+{
+	if (!isAnimate)
+		return super.set_frameIndex(frame);
+
+	var curAnim:Null<FlxAnimateAnimation> = cast _curAnim;
+	if (curAnim != null && (curAnim is FlxAnimateAnimation))
 	{
-		if (!isAnimate)
-			return super.set_frameIndex(frame);
-
-		var curAnim:Null<FlxAnimateAnimation> = cast _curAnim;
-		if (curAnim != null)
+		final numFrames = curAnim.frames.length;
+		if (numFrames > 0)
 		{
-			final numFrames = #if (flixel >= "5.4.0") numFrames #else curAnim.timeline.frameCount #end;
-			if (numFrames > 0)
-			{
-				frame = frame % numFrames;
+			frame = frame % numFrames;
 
-				_animate.timeline = curAnim.timeline;
-				_animate.timeline.currentFrame = frame;
-				_animate.timeline.signalFrameChange(frame, this);
-				if (_animate.useRenderTexture)
-					_animate._renderTextureDirty = true;
-				frameIndex = frame;
-				fireCallback();
+			_animate.timeline = curAnim.timeline;
+			
+			// 关键修改：使用 frames[frame] 获取绝对帧号，而不是直接用 frame
+			var absoluteFrame:Int = (curAnim.frames != null && curAnim.frames.length > 0) ? curAnim.frames[frame] : frame;
+			_animate.timeline.currentFrame = absoluteFrame;
+			
+			_animate.timeline.signalFrameChange(absoluteFrame, this);
+			if (_animate.useRenderTexture)
+				_animate._renderTextureDirty = true;
+			frameIndex = frame;
+			fireCallback();
 
-				updateTimelineBounds();
-			}
+			updateTimelineBounds();
 		}
-
-		return frameIndex;
 	}
+
+	return frameIndex;
+}
 
 	/**
 	 * Internal FlxFrame used to fake out current frame data for FlxSprite
