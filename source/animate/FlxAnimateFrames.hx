@@ -1,13 +1,16 @@
 package animate;
 
 import animate.FlxAnimateJson;
+import animate.internal.Frame;
+import animate.internal.Layer;
 import animate.internal.SymbolItem;
 import animate.internal.Timeline;
+import animate.internal.elements.AtlasInstance;
 import animate.internal.elements.SymbolInstance;
 import flixel.FlxG;
 import flixel.graphics.FlxGraphic;
 import flixel.graphics.frames.FlxAtlasFrames;
-import flixel.graphics.frames.FlxFramesCollection.FlxFrameCollectionType;
+import flixel.math.FlxMath;
 import flixel.math.FlxMatrix;
 import flixel.math.FlxPoint;
 import flixel.math.FlxRect;
@@ -17,6 +20,8 @@ import flixel.util.FlxDestroyUtil;
 import haxe.Json;
 import haxe.ds.Vector;
 import haxe.io.Path;
+import openfl.filters.BitmapFilter;
+import openfl.filters.BlurFilter;
 
 using StringTools;
 
@@ -45,7 +50,8 @@ typedef FlxAnimateSettings =
 	?swfMode:Bool,
 	?cacheOnLoad:Bool,
 	?filterQuality:FilterQuality,
-	?onSymbolCreate:SymbolItem->Void
+	?onSymbolCreate:SymbolItem->Void,
+	?applyInterpolation:Bool
 }
 
 /**
@@ -54,15 +60,11 @@ typedef FlxAnimateSettings =
  * Note that this engine does **NOT** convert texture atlases into spritesheets, therefore trying to get
  * frames from a ``FlxAnimateFrames`` will result in getting the limb frames of the spritemap.
  *
- * If you need an actual frame of the texture atlas animation I recommend manually creating it using
- * ``framePixels`` on a ``FlxAnimate``. Though it may cause performance issues, so use with precaution.
+ * If you need an actual frame of the texture atlas animation I recommend using ``useRenderTexture``
+ * on a ``FlxAnimate``. Though it may cause performance issues, so use with precaution.
  */
 class FlxAnimateFrames extends FlxAtlasFrames
 {
-	// TODO:
-	// public var instance:SymbolInstance;
-	// public var stageInstance:SymbolInstanceJson;
-
 	/**
 	 * The main ``Timeline`` that the Texture Atlas was exported from.
 	 */
@@ -81,10 +83,17 @@ class FlxAnimateFrames extends FlxAtlasFrames
 	public var stageColor:FlxColor;
 
 	/**
+	 * Symbol instance of the Texture Atlas on the Animate stage.
+	 * Null if not exported from an instanced symbol.
+	 */
+	public var stageInstance:Null<SymbolInstance>;
+
+	/**
 	 * Matrix of the Texture Atlas on the Animate stage.
 	 * Defaults to an empty matrix if not exported from an instanced symbol.
+	 * Shortcut for ``library.stageInstance.matrix``
 	 */
-	public var matrix:FlxMatrix; // TODO: to be replaced with library.instance
+	public var matrix(get, never):FlxMatrix;
 
 	/**
 	 * Default frame rate that the Texture Atlas was exported from.
@@ -104,7 +113,7 @@ class FlxAnimateFrames extends FlxAtlasFrames
 	 * @param name Name of the symbol item to return.
 	 * @return ``SymbolItem`` found with the given name, null if not found.
 	 */
-	public function getSymbol(name:String):Null<SymbolItem>
+	public function getSymbol(name:String, ?atlasInstance:AtlasInstanceJson):Null<SymbolItem>
 	{
 		if (dictionary.exists(name))
 		{
@@ -148,8 +157,19 @@ class FlxAnimateFrames extends FlxAtlasFrames
 
 		for (collection in addedCollections)
 		{
-			if (collection.dictionary.exists(name))
+			if (collection != null && collection.dictionary != null && collection.dictionary.exists(name))
 				return collection.dictionary.get(name);
+		}
+
+		// Legacy check for Animate 2018 Texture Atlas
+		if (atlasInstance != null)
+		{
+			var timeline = new Timeline(null, this, name);
+			var layer = timeline.addNewLayer("Layer 1", 1);
+			layer.frames[0].elements.push(new AtlasInstance(atlasInstance, this, layer.frames[0]));
+			timeline.refresh();
+
+			return setSymbol(name, new SymbolItem(timeline));
 		}
 
 		FlxG.log.warn("SymbolItem with name " + '"$name"' + " doesn't exist.");
@@ -238,6 +258,12 @@ class FlxAnimateFrames extends FlxAtlasFrames
 				}
 			}
 
+			@:privateAccess
+			if (!isAtlasDestroyed && (cachedAtlas.timeline.layers == null || cachedAtlas.timeline.layers.length <= 0 || cachedAtlas.timeline._bounds == null))
+			{
+				isAtlasDestroyed = true;
+			}
+
 			// Destroy previously cached atlas if incomplete, and create a new instance
 			if (isAtlasDestroyed)
 			{
@@ -257,23 +283,34 @@ class FlxAnimateFrames extends FlxAtlasFrames
 		return _fromAnimateInput(animate, spritemaps, metadata, key, settings);
 	}
 
-	static function getTextFromPath(path:String):String
+	static function getTextFromPath(path:String):Null<String>
 	{
-		return FlxAnimateAssets.getText(path).replace(String.fromCharCode(0xFEFF), "");
+		// getText() returns null if the asset could not be fetched.
+		var text:Null<String> = FlxAnimateAssets.getText(path);
+		if (text == null) return null;
+		return text.replace(String.fromCharCode(0xFEFF), "");
 	}
 
 	static function listWithFilter(path:String, filter:String->Bool, includeSubDirectories:Bool = false)
 	{
-		var list = FlxAnimateAssets.list(path, null, path.substring(0, path.indexOf(':')), includeSubDirectories);
+		var library = "";
+		var sepIndex = path.indexOf(':');
+		if (path.charAt(sepIndex + 1) != '/') // absolute paths fix
+			library = path.substring(0, sepIndex);
+
+		var list = FlxAnimateAssets.list(path, null, library, includeSubDirectories);
 		return list.filter(filter);
 	}
 
-	static function getGraphic(path:String):FlxGraphic
+	static function getGraphic(path:String, ?key:String):FlxGraphic
 	{
-		if (FlxG.bitmap.checkCache(path))
-			return FlxG.bitmap.get(path);
+		if (key == null)
+			key = path;
 
-		return FlxG.bitmap.add(FlxAnimateAssets.getBitmapData(path), false, path);
+		if (FlxG.bitmap.checkCache(key))
+			return FlxG.bitmap.get(key);
+
+		return FlxG.bitmap.add(FlxAnimateAssets.getBitmapData(path), false, key);
 	}
 
 	var _symbolDictionary:Null< #if flash Array<SymbolJson> #else Vector<SymbolJson> #end>;
@@ -314,13 +351,15 @@ class FlxAnimateFrames extends FlxAtlasFrames
 		var spritemapList = listWithFilter(path, (file) -> file.startsWith("spritemap"), false);
 		var jsonList = spritemapList.filter((file) -> file.endsWith(".json"));
 
+		var jsonI:Int = 0;
 		for (sm in jsonList)
 		{
+			jsonI++;
 			var id = sm.split("spritemap")[1].split(".")[0];
 			var imageFile = spritemapList.filter((file) -> file.startsWith('spritemap$id') && !file.endsWith(".json"))[0];
 
 			spritemaps.push({
-				source: getGraphic('$path/$imageFile'),
+				source: getGraphic('$path/$imageFile', (jsonList.length > 1 && key != null) ? '$key-$jsonI' : key),
 				json: getTextFromPath('$path/$sm')
 			});
 		}
@@ -405,8 +444,9 @@ class FlxAnimateFrames extends FlxAtlasFrames
 		frames.stageColor = FlxColor.fromString(metadata.BGC);
 
 		// stage instance of the main symbol
-		var stageInstance:Null<SymbolInstanceJson> = animData.AN.STI;
-		frames.matrix = (stageInstance != null) ? stageInstance.MX.toMatrix() : new FlxMatrix();
+		var stageInstance = animData.AN.STI;
+		if (stageInstance != null)
+			frames.stageInstance = SymbolInstance._fromJson(stageInstance, frames);
 
 		// clear the temp data crap
 		frames._symbolDictionary = null;
@@ -570,9 +610,17 @@ class FlxAnimateFrames extends FlxAtlasFrames
 
 		stageRect = FlxDestroyUtil.put(stageRect);
 		timeline = FlxDestroyUtil.destroy(timeline);
+		stageInstance = FlxDestroyUtil.destroy(stageInstance);
+		_stageMatrix = null;
 		checkedDirtySymbols = null;
 		dictionary = null;
-		matrix = null;
+	}
+
+	var _stageMatrix:FlxMatrix;
+
+	function get_matrix():FlxMatrix
+	{
+		return stageInstance?.matrix ?? (_stageMatrix ??= new FlxMatrix());
 	}
 }
 
@@ -676,5 +724,28 @@ enum abstract FilterQuality(Int) to Int
 			case FilterQuality.RUDY: 8.0;
 			default: 1.0;
 		}
+	}
+
+	public function getFiltersScale(filters:Array<BitmapFilter>)
+	{
+		var scale = FlxPoint.get(1, 1);
+		var pixelFactor:Float = getPixelFactor();
+		var qualityFactor:Float = getQualityFactor();
+
+		for (filter in filters)
+		{
+			if (filter is BlurFilter)
+			{
+				var blur:BlurFilter = cast filter;
+				if (this != FilterQuality.HIGH)
+				{
+					var qualityMult = FlxMath.remapToRange(blur.quality, 0, 3, 1, 3) * qualityFactor;
+					scale.x *= Math.max(((blur.blurX) / pixelFactor) * qualityMult, 1);
+					scale.y *= Math.max(((blur.blurY) / pixelFactor) * qualityMult, 1);
+				}
+			}
+		}
+
+		return scale;
 	}
 }

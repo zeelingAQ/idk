@@ -1,7 +1,9 @@
 package animate;
 
+import animate.internal.FilterRenderer;
 import animate.internal.filters.AdjustColorFilter;
 import flixel.FlxG;
+import flixel.math.FlxMath;
 import flixel.math.FlxMatrix;
 import flixel.util.FlxColor;
 import haxe.ds.Vector;
@@ -126,7 +128,11 @@ extern abstract FrameJson(Dynamic)
 
 	public var SND(get, never):SoundJson;
 
+	public var F(get, never):Null<Array<FilterJson>>;
 	public var B(get, never):Null< #if flash Int #else BlendMode #end>;
+	public var C(get, never):Null<ColorJson>;
+
+	public var TWN(get, never):TweenJson;
 
 	inline function get_I()
 		return this.I ?? this.index;
@@ -143,16 +149,148 @@ extern abstract FrameJson(Dynamic)
 	inline function get_SND()
 		return this.SND;
 
+	inline function get_F()
+	{
+		var filters:Dynamic = this.F ?? this.filters;
+		if (filters == null || filters is Array)
+			return filters;
+		return this.F = FilterJson.resolve(filters);
+	}
+
 	inline function get_B()
 		return this.B ?? this.blend;
+
+	inline function get_C()
+		return this.C ?? this.color;
+
+	inline function get_TWN()
+		return this.TWN ?? this.tween;
 }
 
-extern typedef SoundJson =
+extern abstract TweenJson(Dynamic)
 {
-	N:String,
-	SNC:String,
-	LP:String,
-	RP:Int
+	// cubic
+	public var CV(get, never):Array<PointJson>;
+
+	public var ES(get, never):Int;
+	public var TP(get, never):String;
+
+	// motion
+	public var RT(get, never):String;
+	public var RTT(get, never):Int;
+	public var SL(get, never):Bool;
+	public var SP(get, never):Bool;
+	public var SC(get, never):Bool;
+
+	// motion object
+	public var TM(get, never):TweenTimeMapJson;
+	public var PC(get, never):Array<TweenPropertyContainerJson>;
+
+	inline function get_CV()
+		return this.CV ?? this.curve;
+
+	inline function get_ES()
+		return this.ES ?? this.ease;
+
+	inline function get_TP()
+		return this.TP ?? this.type;
+
+	inline function get_RT()
+		return this.RT ?? this.rotate;
+
+	inline function get_RTT()
+		return this.RTT ?? this.rotateTimes;
+
+	inline function get_SL()
+		return this.SL ?? this.scale;
+
+	inline function get_SP()
+		return this.SP ?? this.snap;
+
+	inline function get_SC()
+		return this.SC ?? this.sync;
+
+	inline function get_TM()
+		return this.TM ?? this.timeMap;
+
+	inline function get_PC()
+		return this.PC ?? this.propertyContainer;
+}
+
+extern abstract TweenTimeMapJson(Dynamic)
+{
+	public var S(get, never):Int;
+	public var TP(get, never):String;
+
+	inline function get_S()
+		return this.S ?? this.strength;
+
+	inline function get_TP()
+		return this.TP ?? this.type;
+}
+
+extern abstract TweenPropertyContainerJson(Dynamic)
+{
+	public var ID(get, never):Int;
+	public var P(get, never):Array<TweenProperty>;
+
+	inline function get_ID()
+		return this.ID;
+
+	inline function get_P()
+		return this.P ?? this.properties;
+}
+
+extern abstract TweenProperty(Dynamic)
+{
+	public var ID(get, never):Int;
+	public var KFR(get, never):Array<TweenKeyframe>;
+
+	inline function get_ID()
+		return this.ID;
+
+	inline function get_KFR()
+		return this.KFR ?? this.keyframes;
+}
+
+extern abstract TweenKeyframe(Dynamic)
+{
+	public var ANC(get, never):Int;
+	public var NXT(get, never):Int;
+	public var PRV(get, never):Int;
+	public var I(get, never):Int;
+
+	inline function get_ANC()
+		return this.ANC ?? this.anchor;
+
+	inline function get_NXT()
+		return this.NXT ?? this.next;
+
+	inline function get_PRV()
+		return this.PRV ?? this.previous;
+
+	inline function get_I()
+		return this.I ?? this.index;
+}
+
+extern abstract SoundJson(Dynamic)
+{
+	public var N(get, never):String;
+	public var SNC(get, never):String;
+	public var LP(get, never):String;
+	public var RP(get, never):Int;
+
+	inline function get_N()
+		return this.N ?? this.name;
+
+	inline function get_SNC()
+		return this.SNC ?? this.Sync;
+
+	inline function get_LP()
+		return this.LP ?? this.Loop;
+
+	inline function get_RP()
+		return this.RP ?? this.Repeat ?? 0;
 }
 
 extern abstract ElementJson(Dynamic)
@@ -175,8 +313,9 @@ abstract SymbolInstanceJson(Dynamic)
 {
 	public var SN(get, never):String;
 	public var FF(get, never):Int;
+	public var LF(get, never):Int;
 	public var ST(get, never):String;
-	public var TRP(get, never):TransformationPointJson;
+	public var TRP(get, never):PointJson;
 	public var LP(get, never):String;
 	public var MX(get, never):MatrixJson;
 
@@ -184,11 +323,17 @@ abstract SymbolInstanceJson(Dynamic)
 	public var C(get, never):Null<ColorJson>;
 	public var F(get, never):Null<Array<FilterJson>>;
 
+	@:noCompletion
+	public var BM(get, never):Null<AtlasInstanceJson>; // legacy 2018 texture atlas
+
 	extern inline function get_SN()
 		return this.SN ?? this.SYMBOL_name;
 
 	extern inline function get_FF()
 		return this.FF ?? this.firstFrame ?? 0;
+
+	extern inline function get_LF()
+		return this.LF ?? this.lastFrame ?? -1;
 
 	extern inline function get_ST()
 		return this.ST ?? this.symbolType;
@@ -230,6 +375,11 @@ abstract SymbolInstanceJson(Dynamic)
 		if (filters == null || filters is Array)
 			return filters;
 		return this.F = FilterJson.resolve(filters);
+	}
+
+	extern inline function get_BM()
+	{
+		return this.BM ?? this.bitmap;
 	}
 }
 
@@ -598,6 +748,7 @@ extern abstract SymbolJson(Dynamic)
 extern abstract MetadataJson(Dynamic)
 {
 	public var V(get, never):String;
+	public var FLV(get, never):String;
 	public var FRT(get, never):Float;
 
 	public var W(get, never):Int;
@@ -605,7 +756,10 @@ extern abstract MetadataJson(Dynamic)
 	public var BGC(get, never):String;
 
 	inline function get_V()
-		return this.V ?? this.version;
+		return this.V ?? this.version ?? "";
+
+	inline function get_FLV()
+		return this.FLV ?? this.flVersion ?? "";
 
 	inline function get_FRT()
 		return this.FRT ?? this.framerate;
@@ -672,7 +826,7 @@ extern abstract ColorJson(Dynamic)
 		return this.BRT ?? this.brightness;
 }
 
-extern typedef TransformationPointJson =
+extern typedef PointJson =
 {
 	x:Float,
 	y:Float
@@ -693,21 +847,34 @@ abstract MatrixJson(Array<Float>) from Array<Float>
 		if (mat2D != null)
 			return mat2D;
 
-		var m:Dynamic = input.M3D ?? input.Matrix3D;
-		var mat3D:Array<Float>;
-
-		if (m is Array)
+		var m3d:Dynamic = input.M3D ?? input.Matrix3D;
+		if (m3d != null)
 		{
-			mat3D = m;
-		}
-		else
-		{
-			mat3D = [
-				m.m00, m.m01, m.m02, m.m03, m.m10, m.m11, m.m12, m.m13, m.m20, m.m21, m.m22, m.m23, m.m30, m.m31, m.m32, m.m33
-			];
+			var mat3D:Array<Float>;
+
+			if (m3d is Array)
+			{
+				mat3D = m3d;
+			}
+			else
+			{
+				mat3D = [
+					m3d.m00, m3d.m01, m3d.m02, m3d.m03, m3d.m10, m3d.m11, m3d.m12, m3d.m13, m3d.m20, m3d.m21, m3d.m22, m3d.m23, m3d.m30, m3d.m31, m3d.m32,
+					m3d.m33
+				];
+			}
+
+			return from3Dto2D(mat3D);
 		}
 
-		return from3Dto2D(mat3D);
+		// legacy 2018 texture atlas
+		var pos:PointJson = input.POS ?? input.Position;
+		if (pos != null)
+		{
+			return [1, 0, 0, 1, pos.x, pos.y];
+		}
+
+		return [1, 0, 0, 1, 0, 0];
 	}
 
 	public static function from3Dto2D(mat3D:Array<Float>):Array<Float>
@@ -724,13 +891,9 @@ abstract MatrixJson(Array<Float>) from Array<Float>
 			var x = p[0];
 			var y = p[1];
 			var z = mat3D[3] * x + mat3D[7] * y + mat3D[15];
-			
-			if (Math.abs(z) < 1e-6)
-				z = 1.0;
-			
 			transformed.push([
-				(mat3D[0] * x + mat3D[4] * y + mat3D[12]) / z,
-				(mat3D[1] * x + mat3D[5] * y + mat3D[13]) / z
+				mat3D[0] * x + mat3D[4] * y + mat3D[12] / z,
+				mat3D[1] * x + mat3D[5] * y + mat3D[13] / z
 			]);
 		}
 
@@ -748,9 +911,15 @@ abstract MatrixJson(Array<Float>) from Array<Float>
 		return [a, b, c, d, tx, ty];
 	}
 
-	extern public inline function toMatrix():FlxMatrix
+	extern public inline function toMatrix(?result:FlxMatrix):FlxMatrix
 	{
-		return new FlxMatrix(a, b, c, d, tx, ty);
+		#if flash
+		result ??= new FlxMatrix();
+		#else
+		result ??= FilterRenderer.matrixPool.get();
+		#end
+		result.setTo(a, b, c, d, tx, ty);
+		return result;
 	}
 
 	extern inline function get_a()

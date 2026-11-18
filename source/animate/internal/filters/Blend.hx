@@ -1,3 +1,5 @@
+// Maybe change FilterRenderer too?
+
 package animate.internal.filters;
 
 import flixel.FlxG;
@@ -13,23 +15,10 @@ import openfl.geom.Matrix;
 
 class Blend
 {
-	public static function resolve(?blend:BlendMode, ?drawBlend:BlendMode):Null<BlendMode>
+	public static function fromInt(?blend:Int):BlendMode
 	{
-		if (Frame.__isDirtyCall)
-			return NORMAL;
-
-		if (blend == null || blend == NORMAL)
-			return drawBlend;
-
-		return blend;
-	}
-
-	public static function fromInt(blend:Null<Int>):BlendMode
-	{
-		if (blend == null)
-			return NORMAL;
-
-		return switch (blend)
+		if (blend == null) return NORMAL;
+		else return switch (blend)
 		{
 			case 0: ADD;
 			case 1: ALPHA;
@@ -46,21 +35,35 @@ class Blend
 			case 12: SCREEN;
 			case 13: SHADER;
 			case 14: SUBTRACT;
-			case _: NORMAL;
-		};
+
+			case 15: COLORDODGE;
+			case 16: COLORBURN;
+			case 17: SOFTLIGHT;
+			case 18: EXCLUSION;
+			case 19: HUE;
+			case 20: SATURATION;
+			case 21: COLOR;
+			case 22: LUMINOSITY;
+			default: NORMAL;
+		}
 	}
 
 	#if !flash
 	public static function isGpuSupported(blend:BlendMode):Bool
 	{
-		return switch (blend)
+		if (@:privateAccess OpenGLRenderer.__complexBlendsSupported) return switch (blend)
 		{
-			case NORMAL | ADD | MULTIPLY | SCREEN | SUBTRACT #if desktop | LIGHTEN /**| DARKEN**/ #end: true;
-			case _: false;
+			case ALPHA | ERASE | LAYER | SHADER: false;
+			default: true;
+		}
+		else return switch (blend)
+		{
+			case NORMAL | ADD | MULTIPLY | SCREEN | SUBTRACT #if desktop | LIGHTEN | DARKEN #end: true;
+			default: false;
 		}
 	}
 
-	public static function blend(target:BitmapData, bitmap1:BitmapData, bitmap2:BitmapData, blend:BlendMode):Void
+	public static function blend(target:BitmapData, bitmap1:BitmapData, bitmap2:BitmapData, blend:BlendMode)
 	{
 		if (blend == NORMAL || blend == LAYER || blend == SHADER)
 		{
@@ -147,6 +150,7 @@ class BlendShader extends GraphicsShader
 				case 14: // SUBTRACT
 					result.rgb = a.rgb - b.rgb;
 					break;
+				// TODO: Support for other blend modes.
 			}
             
             result.rgb = mix(a.rgb, result.rgb, b.a);

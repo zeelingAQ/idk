@@ -25,7 +25,7 @@ class FlxAnimateAssets
 		#end
 
 		// Fallback to filesystem
-		#if sys
+		#if (sys && desktop)
 		return sys.FileSystem.exists(path);
 		#end
 
@@ -44,7 +44,7 @@ class FlxAnimateAssets
 		#end
 
 		// Fallback to filesystem
-		#if sys
+		#if (sys && desktop)
 		if (sys.FileSystem.exists(path))
 			return sys.io.File.getContent(path);
 		#end
@@ -64,7 +64,7 @@ class FlxAnimateAssets
 		#end
 
 		// Fallback to filesystem
-		#if sys
+		#if (sys && desktop)
 		if (sys.FileSystem.exists(path))
 			return sys.io.File.getBytes(path);
 		#end
@@ -84,7 +84,7 @@ class FlxAnimateAssets
 		#end
 
 		// Fallback to filesystem
-		#if sys
+		#if (sys && desktop)
 		if (sys.FileSystem.exists(path))
 			return BitmapData.fromFile(path);
 		#end
@@ -103,7 +103,7 @@ class FlxAnimateAssets
 			result = [];
 
 		// Fallback to filesystem for non-library assets
-		#if sys
+		#if (sys && desktop)
 		if (library == null || library.length == 0)
 		{
 			if (sys.FileSystem.exists(path))

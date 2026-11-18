@@ -1,5 +1,6 @@
 package animate.internal;
 
+import animate.FlxAnimateFrames.FilterQuality;
 import animate.FlxAnimateJson.LayerJson;
 import flixel.math.FlxMath;
 import flixel.math.FlxMatrix;
@@ -17,7 +18,6 @@ class Layer implements IFlxDestroyable
 	public var parentLayer:Null<Layer>;
 
 	var frameIndices:Null<Array<Int>>;
-	var _effectiveFrameCount:Int = -1;
 
 	public function new(?timeline:Timeline)
 	{
@@ -29,32 +29,11 @@ class Layer implements IFlxDestroyable
 		this.layerType = NORMAL;
 	}
 
-	public function getEffectiveFrameCount():Int
-	{
-		if (_effectiveFrameCount >= 0)
-			return _effectiveFrameCount;
-
-		if (frameCount <= 0)
-			return _effectiveFrameCount = 0;
-
-		var last:Int = frameCount - 1;
-		while (last >= 0)
-		{
-			var frame = getFrameAtIndex(last);
-			if (frame != null && frame.elements.length > 0)
-				break;
-			last--;
-		}
-
-		_effectiveFrameCount = (last >= 0) ? last + 1 : frameCount;
-		return _effectiveFrameCount;
-	}
-
-	public function clearEffectiveFrameCountCache():Void
-	{
-		_effectiveFrameCount = -1;
-	}
-
+	/**
+	 * Applies a function to all the keyframes of the layer.
+	 *
+	 * @param callback The ``Frame->Void`` function to call for all the existing keyframes.
+	 */
 	public function forEachFrame(callback:Frame->Void)
 	{
 		if (frames != null)
@@ -64,6 +43,12 @@ class Layer implements IFlxDestroyable
 		}
 	}
 
+	/**
+	 * Returns a frame of the layer at a specific index.
+	 *
+	 * @param index Index of the frame.
+	 * @return		The ``Frame`` found at the index, null if it doesn't exist.
+	 */
 	public function getFrameAtIndex(index:Int):Null<Frame>
 	{
 		index = FlxMath.maxInt(index, 0);
@@ -74,27 +59,33 @@ class Layer implements IFlxDestroyable
 		return frames[frameIndex];
 	}
 
+	/**
+	 * Sets the frame of the layer at a specific index as a keyframe.
+	 * While keeping all the previous elements stored at the frame.
+	 *
+	 * @param index Index of the new keyframe.
+	 */
 	public function setKeyframe(index:Int)
 	{
 		var lastFrame = getFrameAtIndex(index);
-		if (lastFrame == null || lastFrame.index == index)
+		if (lastFrame == null || lastFrame.index == index) // already is a keyframe or doesnt exist
 			return;
 
 		setBlankKeyframe(index);
 		var keyframe = getFrameAtIndex(index);
-		if (keyframe == null)
-			return;
 
 		keyframe.elements = lastFrame.elements.copy();
 		keyframe.name = lastFrame.name;
-		clearEffectiveFrameCountCache();
 	}
 
+	/**
+	 * Sets the frame of the layer at a specific index as an empty keyframe.
+	 *
+	 * @param index Index of the new keyframe.
+	 */
 	public function setBlankKeyframe(index:Int)
 	{
 		var lastFrame = getFrameAtIndex(index);
-		if (lastFrame == null)
-			return;
 
 		var startIndex = lastFrame.index;
 		var startDuration = lastFrame.duration;
@@ -106,9 +97,17 @@ class Layer implements IFlxDestroyable
 		frames.insert(frames.indexOf(lastFrame) + 1, keyframe);
 		for (i in 0...keyframe.duration)
 			frameIndices[index + i] = frames.length - 1;
-		clearEffectiveFrameCountCache();
 	}
 
+	/**
+	 * Returns the bounds of the layer at a specific frame index.
+	 *
+	 * @param frameIndex			The frame index where to calculate the bounds from.
+	 * @param rect					Optional, the rectangle used to input the final calculated values.
+	 * @param matrix				Optional, the matrix to apply to the bounds calculation.
+	 * @param includeFilters		Optional, if to include filtered bounds in the calculation or use the unfilitered ones (true to Flash's bounds).
+	 * @return						A ``FlxRect`` with the layer's bounds at an index, empty if no elements were found.
+	 */
 	public function getBounds(frameIndex:Int, ?rect:FlxRect, ?matrix:FlxMatrix, ?includeFilters:Bool = true, ?useCachedBounds:Bool = false):FlxRect
 	{
 		rect ??= FlxRect.get();
@@ -140,7 +139,7 @@ class Layer implements IFlxDestroyable
 		var clippedBy:Null<String> = layer.Clpb;
 		var isMasked:Bool = clippedBy != null;
 
-		if (isMasked && layerIndex != null && layers != null)
+		if (isMasked && layerIndex != null && layers != null) // Set clipped by
 		{
 			var i = layerIndex - 1;
 			var foundLayer:Bool = false;
@@ -164,7 +163,7 @@ class Layer implements IFlxDestroyable
 				visible = false;
 			}
 		}
-		else
+		else // Set other layer types
 		{
 			final type:Null<String> = layer.LT;
 			this.layerType = type != null ? switch (type)
@@ -175,43 +174,52 @@ class Layer implements IFlxDestroyable
 			} : NORMAL;
 		}
 
+		// Set clipper
 		if (this.layerType == CLIPPER)
 			visible = false;
 
 		if (this.layerType != FOLDER)
 		{
-			if (layer.FR != null)
+			for (i => frameJson in layer.FR)
 			{
-				for (i => frameJson in layer.FR)
-				{
-					var frame = new Frame(this);
-					frame._loadJson(frameJson, parent);
-					frames.push(frame);
+				var frame = new Frame(this);
+				frame._loadJson(frameJson, parent);
+				frames.push(frame);
 
-					for (_ in 0...frame.duration)
-						frameIndices.push(i);
-				}
+				for (_ in 0...frame.duration)
+					frameIndices.push(i);
 			}
 		}
 
-		if (!isMasked)
-			return;
-
+		// Add settings from parent frames
 		var _cacheOnLoad:Bool = false;
+		var _filterQuality:FilterQuality = FilterQuality.MEDIUM;
 		@:privateAccess {
 			if (parent != null && parent._settings != null)
+			{
 				_cacheOnLoad = parent._settings.cacheOnLoad ?? false;
+				_filterQuality = parent._settings.filterQuality ?? FilterQuality.MEDIUM;
+			}
 		}
 
+		// TODO: this whole system sucks and is due for a rewrite
+		// Make some kind of wrapper/cleaner filter render both for movieclip and frame filtering
+		// Also may be worth dropping the filters Flash support for simplicity (even tho its so cool)
 		for (frame in frames)
 		{
+			frame._filterQuality = _filterQuality;
+
 			if (frame.elements.length <= 0)
 				continue;
 
-			frame._dirty = true;
-			frame._requireBake = true;
+			if (isMasked || frame._dirty)
+			{
+				frame._dirty = true;
+				frame._requireBake = true;
+			}
 
-			if (_cacheOnLoad)
+			// Cache all frames on start, if set by the settings
+			if (_cacheOnLoad) // TODO: fix some size issues when using cacheOnLoad with masks
 			{
 				for (i in 0...frame.duration)
 					frame._bakeFrame(i);
@@ -231,7 +239,6 @@ class Layer implements IFlxDestroyable
 
 		frames = null;
 		frameIndices = null;
-		timeline = null;
 	}
 
 	inline function get_frameCount():Int

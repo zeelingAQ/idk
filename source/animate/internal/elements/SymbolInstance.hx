@@ -2,44 +2,42 @@ package animate.internal.elements;
 
 import animate.FlxAnimateJson;
 import animate.internal.elements.Element;
-import animate.internal.filters.Blend;
 import flixel.FlxCamera;
 import flixel.math.FlxMath;
 import flixel.math.FlxMatrix;
 import flixel.math.FlxPoint;
 import flixel.math.FlxRect;
-import flixel.system.FlxAssets.FlxShader;
 import flixel.util.FlxColor;
 import flixel.util.FlxDestroyUtil;
-import openfl.display.BlendMode;
-import openfl.geom.ColorTransform;
+import flixel.util.typeLimit.OneOfTwo;
 
 using flixel.util.FlxColorTransformUtil;
 
 class SymbolInstance extends AnimateElement<SymbolInstanceJson>
 {
 	public var libraryItem:SymbolItem;
-	public var blend:BlendMode;
-	public var firstFrame:Int;
-	public var loopType:LoopType;
+	public var firstFrame:Int = 0;
+	public var lastFrame:Int = -1;
+	public var loopType:LoopType = LOOP;
 	public var symbolName(get, never):String;
 	public var transformationPoint:FlxPoint;
 
-	var isColored:Bool;
-	var transform:ColorTransform;
-	var _transform:ColorTransform;
-
 	public function new(?data:SymbolInstanceJson, ?parent:FlxAnimateFrames, ?frame:Frame)
 	{
+		_drawCommand = new AnimateDrawCommand();
+
 		super(data, parent, frame);
 		this.elementType = GRAPHIC;
+
+		this.transformationPoint = FlxPoint.get();
 
 		if (data == null)
 			return;
 
-		this.libraryItem = parent.getSymbol(data.SN);
-		this.matrix = data.MX.toMatrix();
+		this.libraryItem = parent.getSymbol(data.SN, data.BM);
+		this.matrix = data.MX.toMatrix(this.matrix);
 		this.firstFrame = data.FF;
+		this.lastFrame = data.LF;
 		this.isColored = false;
 
 		this.loopType = switch (data.LP)
@@ -49,8 +47,11 @@ class SymbolInstance extends AnimateElement<SymbolInstanceJson>
 			default: LoopType.LOOP;
 		}
 
-		var trp:Null<TransformationPointJson> = data.TRP;
-		this.transformationPoint = FlxPoint.get(trp?.x ?? 0.0, trp?.y ?? 0.0);
+		var trp:Null<PointJson> = data.TRP;
+		if (trp != null)
+			this.transformationPoint.set(trp.x, trp.y);
+		else
+			this.transformationPoint.set(0.0, 0.0);
 
 		if (libraryItem == null)
 			visible = false;
@@ -78,36 +79,79 @@ class SymbolInstance extends AnimateElement<SymbolInstanceJson>
 		}
 	}
 
-	public extern overload inline function setColorTransform(rMult:Float = 1, gMult:Float = 1, bMult:Float = 1, aMult:Float = 1, rOffset:Float = 0,
-			gOffset:Float = 0, bOffset:Float = 0, aOffset:Float = 0):Void
+	/**
+	 * Swaps the attached ``SymbolItem`` to a different one from the library or added by the user.
+	 * @param newItem	New ``SymbolItem`` name or object to replace the current symbol with.
+	 */
+	public function swapSymbol(newItem:OneOfTwo<String, SymbolItem>):Void
 	{
-		_setColorTransform(rMult, gMult, bMult, aMult, rOffset, gOffset, bOffset, aOffset);
+		if (newItem is String)
+		{
+			if (libraryItem != null)
+			{
+				var foundItem = libraryItem.timeline.parent.getSymbol(newItem);
+				if (foundItem != null)
+					libraryItem = foundItem;
+			}
+		}
+		else
+		{
+			libraryItem = newItem;
+		}
 	}
 
-	public extern overload inline function setColorTransform(color:FlxColor):Void
-	{
-		_setColorTransform(color.redFloat, color.greenFloat, color.blueFloat, 1, 0, 0, 0, 0);
-	}
-
+	/**
+	 * Returns the timeline frame index needed to be rendered at a specific frame, while taking loop types into consideration.
+	 * @param index 		Index of the timeline to render.
+	 * @param frameIndex 	Optional, relative frame index of the current keyframe the symbol instance is stored at.
+	 * @return				Found frame index for rendering at a specific frame.
+	 */
 	public function getFrameIndex(index:Int, frameIndex:Int = 0):Int
 	{
-		// 使用相对时间，杜绝 377 污染
-		var safeFrame = firstFrame + index;
-		var frameCount = libraryItem.timeline.frameCount;
+		frameIndex = firstFrame + (index - frameIndex);
+
+		final lastIndex:Int = libraryItem.timeline.frameCount - 1;
+		final hasLastFrame:Bool = (lastFrame > -1);
+		final doWrap:Bool = hasLastFrame && (lastFrame < firstFrame);
+
+		final length:Int = (doWrap ? lastIndex : (hasLastFrame ? FlxMath.minInt(lastFrame, lastIndex) : lastIndex)) - firstFrame + 1;
+		final totalLength:Int = doWrap ? length + (lastFrame + 1) : length;
 
 		switch (loopType)
 		{
 			case LoopType.LOOP:
-				safeFrame = FlxMath.wrap(safeFrame, 0, frameCount - 1);
+				if (doWrap)
+				{
+					frameIndex = ((frameIndex - firstFrame) % totalLength + totalLength) % totalLength;
+				}
+				else
+				{
+					if (hasLastFrame)
+						return FlxMath.wrap(frameIndex, firstFrame, FlxMath.minInt(lastFrame, lastIndex));
+
+					return FlxMath.wrap(frameIndex, 0, lastIndex);
+				}
+
 			case LoopType.PLAY_ONCE:
-				safeFrame = FlxMath.minInt(safeFrame, frameCount - 1);
+				frameIndex = FlxMath.minInt((frameIndex - firstFrame), totalLength - 1);
+
 			case LoopType.SINGLE_FRAME:
-				safeFrame = firstFrame;
+				return firstFrame;
 		}
 
-		return safeFrame;
+		if (frameIndex < length)
+			return firstFrame + frameIndex;
+
+		if (doWrap)
+			return (frameIndex - length);
+
+		return -1 + (frameIndex - length);
 	}
 
+	/**
+	 * Method used internally to check if a symbol has simple rendering (one frame).
+	 * @return If the symbol has simple rendering or not.
+	 */
 	public function isSimpleSymbol():Bool
 	{
 		var timeline = libraryItem.timeline;
@@ -118,16 +162,22 @@ class SymbolInstance extends AnimateElement<SymbolInstanceJson>
 		if (loopType == SINGLE_FRAME)
 			return true;
 
+		// TODO: more indepth check through layers
+
 		return false;
 	}
 
 	var _tmpMatrix:FlxMatrix = new FlxMatrix();
 
-	override function getBounds(frameIndex:Int, ?rect:FlxRect, ?matrix:FlxMatrix, ?includeFilters:Bool = true, ?useCachedBounds:Bool = false):FlxRect
+	override function getBounds(frameIndex:Int, ?rect:FlxRect, ?matrix:FlxMatrix, includeFilters:Bool = true, useCachedBounds:Bool = false):FlxRect
 	{
-		if (libraryItem != null && libraryItem.timeline.parent.existsSymbol(symbolName))
-			libraryItem = libraryItem.timeline.parent.getSymbol(symbolName);
+		// TODO: look into this
+		// Patch-on fix for a really weird fucking bug
+		final name = symbolName;
+		if (libraryItem != null && libraryItem.timeline.parent.existsSymbol(name))
+			libraryItem = libraryItem.timeline.parent.getSymbol(name);
 
+		// Prepare the bounds matrix
 		var targetMatrix:FlxMatrix;
 		if (matrix != null)
 		{
@@ -140,71 +190,99 @@ class SymbolInstance extends AnimateElement<SymbolInstanceJson>
 			targetMatrix = this.matrix;
 		}
 
+		// Get the bounds of the symbol item timeline
 		return libraryItem.timeline.getBounds(getFrameIndex(frameIndex, 0), null, rect, targetMatrix, includeFilters, useCachedBounds);
 	}
 
-	override function draw(camera:FlxCamera, index:Int, frameIndex:Int, parentMatrix:FlxMatrix, ?transform:ColorTransform, ?blend:BlendMode,
-			?antialiasing:Bool, ?shader:FlxShader):Void
+	var _drawCommand:AnimateDrawCommand;
+
+	override function draw(camera:FlxCamera, index:Int, frameIndex:Int, parentMatrix:FlxMatrix, ?command:AnimateDrawCommand):Void
 	{
-		if (isColored)
+		if (command != null)
 		{
-			var t = this.transform;
+			_drawCommand.copyFrom(command);
+			command = _drawCommand;
 
-			_transform.redMultiplier = t.redMultiplier;
-			_transform.greenMultiplier = t.greenMultiplier;
-			_transform.blueMultiplier = t.blueMultiplier;
-			_transform.alphaMultiplier = t.alphaMultiplier;
-
-			_transform.redOffset = t.redOffset;
-			_transform.greenOffset = t.greenOffset;
-			_transform.blueOffset = t.blueOffset;
-			_transform.alphaOffset = t.alphaOffset;
-
-			if (transform != null)
-				_transform.concat(transform);
-
-			transform = _transform;
-
-			if (transform.alphaMultiplier <= 0)
-				return;
+			if (command.onSymbolDraw != null)
+				command.onSymbolDraw(this, command);
 		}
 
-		var b = Blend.resolve(this.blend, blend);
-		_drawTimeline(camera, index, frameIndex, parentMatrix, transform, b, antialiasing, shader);
+		drawCommand.prepareCommand(command, this);
+
+		if (!drawCommand.isVisible())
+			return;
+
+		_drawTimeline(camera, index, frameIndex, parentMatrix, drawCommand);
+
+		#if FLX_DEBUG
+		if (FlxAnimate.drawDebugPivot)
+			_drawPivot(camera, parentMatrix);
+		#end
 	}
 
-	function _drawTimeline(camera:FlxCamera, index:Int, frameIndex:Int, parentMatrix:FlxMatrix, transform:Null<ColorTransform>, blend:Null<BlendMode>,
-			antialiasing:Null<Bool>, shader:Null<FlxShader>)
+	function _drawTimeline(camera:FlxCamera, index:Int, frameIndex:Int, parentMatrix:FlxMatrix, ?command:AnimateDrawCommand):Void
 	{
 		_mat.copyFrom(matrix);
 		_mat.concat(parentMatrix);
 		libraryItem.timeline.currentFrame = getFrameIndex(index, frameIndex);
-		libraryItem.timeline.draw(camera, _mat, transform, blend, antialiasing, shader);
+		libraryItem.timeline.draw(camera, _mat, command);
 	}
 
-	function _setColorTransform(rMult:Float, gMult:Float, bMult:Float, aMult:Float, rOffset:Float, gOffset:Float, bOffset:Float, aOffset:Float)
+	#if FLX_DEBUG
+	function _drawPivot(camera:FlxCamera, parentMatrix:FlxMatrix):Void
 	{
-		if (transform == null)
-			transform = new ColorTransform();
-		if (_transform == null)
-			_transform = new ColorTransform();
+		var parentX:Float = matrix.transformX(transformationPoint.x, transformationPoint.y);
+		var parentY:Float = matrix.transformY(transformationPoint.x, transformationPoint.y);
 
-		transform.redMultiplier = rMult;
-		transform.greenMultiplier = gMult;
-		transform.blueMultiplier = bMult;
-		transform.alphaMultiplier = aMult;
+		var pivotX = parentMatrix.transformX(parentX, parentY);
+		var pivotY = parentMatrix.transformY(parentX, parentY);
 
-		transform.redOffset = rOffset;
-		transform.greenOffset = gOffset;
-		transform.blueOffset = bOffset;
-		transform.alphaOffset = aOffset;
+		final view:FlxRect = #if (flixel >= "5.2.0") camera.getViewMarginRect() #else FlxRect.get(camera.viewOffsetX, camera.viewOffsetY,
+			camera.viewOffsetWidth, camera.viewOffsetHeight) #end;
 
-		isColored = (transform.hasRGBAMultipliers() || transform.hasRGBAOffsets());
+		if ((pivotX + 5) > view.x && pivotX < view.right && (pivotY + 5) > view.y && pivotY < view.bottom)
+		{
+			#if flash
+			flixel.FlxG.signals.postDraw.addOnce(() ->
+			{
+				@:privateAccess final point = camera.transformPoint(FlxPoint.get(pivotX, pivotY));
+				AtlasInstance._fillRect.setTo(point.x - 3.5, point.y - 3.5, 7, 7);
+				camera.buffer.fillRect(AtlasInstance._fillRect, 0xff000000);
+				AtlasInstance._fillRect.setTo(point.x - 2.5, point.y - 2.5, 5, 5);
+				camera.buffer.fillRect(AtlasInstance._fillRect, 0xffffffff);
+				point.put();
+			});
+			#else
+			final gfx = camera.debugLayer.graphics;
+			gfx.lineStyle(1 / camera.zoom, 0xff000000);
+			gfx.beginFill(0xffffffff);
+			gfx.drawCircle(pivotX, pivotY, 5 / camera.zoom);
+			gfx.endFill();
+			#end
+		}
+
+		view.put();
 	}
+	#end
 
 	inline function get_symbolName():String
 	{
-		return libraryItem?.name;
+		return libraryItem != null ? libraryItem.name : "";
+	}
+
+	@:allow(animate.internal.elements.Element)
+	@:allow(animate.FlxAnimateFrames)
+	private static function _fromJson(si:SymbolInstanceJson, ?parent:FlxAnimateFrames, ?frame:Frame):SymbolInstance
+	{
+		return switch (si.ST)
+		{
+			case "B" | "button":
+				new ButtonInstance(si, parent, frame);
+			case "MC" | "movieclip":
+				new MovieClipInstance(si, parent, frame);
+			default:
+				new SymbolInstance(si, parent, frame);
+		};
 	}
 
 	override function destroy()
@@ -212,9 +290,8 @@ class SymbolInstance extends AnimateElement<SymbolInstanceJson>
 		super.destroy();
 		transformationPoint = FlxDestroyUtil.put(transformationPoint);
 		libraryItem = null;
-		transform = null;
-		_transform = null;
 		_tmpMatrix = null;
+		_drawCommand = null;
 	}
 
 	public function toString():String

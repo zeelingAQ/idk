@@ -2,10 +2,12 @@ package animate;
 
 import animate.FlxAnimateController.FlxAnimateAnimation;
 import animate.FlxAnimateFrames.FlxAnimateSettings;
+import animate.internal.AnimateDrawCommand;
 import animate.internal.FilterRenderer;
 import animate.internal.Frame;
 import animate.internal.StageBG;
 import animate.internal.Timeline;
+import animate.internal.elements.SymbolInstance;
 import flixel.FlxCamera;
 import flixel.FlxG;
 import flixel.FlxSprite;
@@ -16,6 +18,7 @@ import flixel.math.FlxMatrix;
 import flixel.math.FlxPoint;
 import flixel.math.FlxRect;
 import flixel.system.FlxAssets.FlxGraphicAsset;
+import flixel.util.FlxColor;
 import flixel.util.FlxDestroyUtil;
 import haxe.io.Path;
 import openfl.display.BitmapData;
@@ -39,6 +42,11 @@ class FlxAnimate extends FlxSprite
 	 * Whether to draw the hitboxes of limbs in a Texture Atlas animation.
 	 */
 	public static var drawDebugLimbs:Bool = false;
+
+	/**
+	 * Whether to draw the pivot points of limbs in a Texture Atlas animation.
+	 */
+	public static var drawDebugPivot:Bool = false;
 
 	/**
 	 * Change the skew of your sprite's graphic.
@@ -81,9 +89,22 @@ class FlxAnimate extends FlxSprite
 	/**
 	 * Whether to apply the stage matrix of the Texture Atlas.
 	 * It also makes the sprite render with the bounds from Animate.
+	 * 
 	 * Take note that these bounds may not be accurate to flixel positions.
 	 */
 	public var applyStageMatrix(default, set):Bool = false;
+
+	/**
+	 * Wether to apply the stage matrix of the Texture Atlas before or after FlxSprite calculations.
+	 * Changes the behaviour of a sprite in relation to the position, scale and rotation of the matrix.
+	 * 
+	 * When set to ``false`` the stage matrix will apply before other FlxSprite matrix calculations,
+	 * as if the symbol was contained inside of the sprite.
+	 * 
+	 * When set to ``true`` the stage matrix will apply after FlxSprite matrix calculations,
+	 * as if the sprite was contained inside of the symbol.
+	 */
+	public var postStageMatrixApply:Bool = false;
 
 	/**
 	 * Whether to render the colored background rectangle found in Adobe Animate.
@@ -117,6 +138,8 @@ class FlxAnimate extends FlxSprite
 	 */
 	public function new(?x:Float = 0, ?y:Float = 0, ?simpleGraphic:FlxGraphicAsset, ?settings:FlxAnimateSettings)
 	{
+		_drawCommand = new AnimateDrawCommand();
+
 		var loadedAnimateAtlas:Bool = false;
 		if (simpleGraphic != null && simpleGraphic is String)
 		{
@@ -125,6 +148,11 @@ class FlxAnimate extends FlxSprite
 		}
 
 		super(x, y, loadedAnimateAtlas ? null : simpleGraphic);
+
+		#if flash
+		// texture atlases are so complex that you should just render them normally on blit
+		useFramePixels = false;
+		#end
 
 		if (loadedAnimateAtlas)
 			frames = FlxAnimateFrames.fromAnimate(simpleGraphic, null, null, null, false, settings);
@@ -149,7 +177,8 @@ class FlxAnimate extends FlxSprite
 		{
 			library = cast frames;
 			timeline = library.timeline;
-			applyStageMatrix = this.applyStageMatrix;
+			final curApplyStageMatrix:Bool = this.applyStageMatrix;
+			set_applyStageMatrix(curApplyStageMatrix); // Update timeline bounds
 			resetHelpers();
 		}
 		else
@@ -160,6 +189,8 @@ class FlxAnimate extends FlxSprite
 
 		return resultFrames;
 	}
+
+	var _drawCommand:AnimateDrawCommand;
 
 	override function draw():Void
 	{
@@ -195,58 +226,123 @@ class FlxAnimate extends FlxSprite
 		#if flash
 		return false;
 		#else
-		return isAnimate && useRenderTexture && (alpha != 1 || shader != null || (blend != null && blend != NORMAL));
+		return isAnimate && useRenderTexture && (alpha != 1 || shader != null || (blend != null && blend != NORMAL) || clipRect != null);
 		#end
+	}
+
+	/**
+	 * Set by `getScreenBounds` after it builds the draw matrix for a camera.
+	 * `draw` culls with `isOnScreen` right before calling `drawAnimate` for the same camera,
+	 * so the matrix in `_matrix` can be reused instead of rebuilding the whole chain a second time.
+	 */
+	var _drawMatrixFromCull:Bool = false;
+	var _drawMatrixCamera:FlxCamera = null;
+
+	/**
+	 * Prepares `_matrix` for `drawAnimate`, reusing the cull pass matrix when it is still valid.
+	 * @return True if the matrix was reused, false if it was rebuilt from scratch.
+	 */
+	function prepareAnimateDrawMatrix(matrix:FlxMatrix, camera:FlxCamera, bounds:FlxRect, willUseRenderTexture:Bool):Bool
+	{
+		final reuse = _drawMatrixFromCull && _drawMatrixCamera == camera && !isPixelPerfectRender(camera);
+		_drawMatrixFromCull = false;
+		_drawMatrixCamera = null;
+
+		if (reuse)
+		{
+			if (!willUseRenderTexture)
+			{
+				matrix.tx -= bounds.x * matrix.a + bounds.y * matrix.c;
+				matrix.ty -= bounds.x * matrix.b + bounds.y * matrix.d;
+			}
+			return true;
+		}
+
+		matrix.identity();
+		if (!willUseRenderTexture)
+			matrix.translate(-bounds.x, -bounds.y);
+
+		prepareAnimateMatrix(matrix, camera, bounds);
+		return false;
 	}
 
 	function drawAnimate(camera:FlxCamera):Void
 	{
 		final willUseRenderTexture = checkRenderTexture();
 		final matrix = _matrix;
-		matrix.identity();
 
 		@:privateAccess
 		var bounds = timeline._bounds;
-		if (!willUseRenderTexture)
-			matrix.translate(-bounds.x, -bounds.y);
 
-		prepareAnimateMatrix(matrix, camera, bounds);
+		prepareAnimateDrawMatrix(matrix, camera, bounds, willUseRenderTexture);
 
 		if (renderStage)
 			drawStage(camera);
+
+		final command = _drawCommand;
+		command.parentSprite = this;
+		command.transform = colorTransform;
+		command.blend = blend;
+		command.antialiasing = antialiasing;
+		command.shader = shaderEnabled ? shader : null;
+		command.wrapMode = wrapMode;
+		//command.depthCompareMode = depthCompareMode;
+		command.onSymbolDraw = onSymbolDraw;
 
 		timeline.currentFrame = animation.frameIndex;
 
 		#if !flash
 		if (willUseRenderTexture)
 		{
-			if (_renderTexture == null)
-				_renderTexture = new RenderTexture(Math.ceil(bounds.width), Math.ceil(bounds.height));
-
-			if (_renderTextureDirty)
-			{
-				_renderTexture.init(Math.ceil(bounds.width), Math.ceil(bounds.height));
-				_renderTexture.drawToCamera((camera, matrix) ->
-				{
-					matrix.translate(-bounds.x, -bounds.y);
-					timeline.draw(camera, matrix, null, null, antialiasing, null);
-				});
-				_renderTexture.render();
-
-				_renderTextureDirty = false;
-			}
-
-			if (layer != null)
-				layer.drawPixels(this, camera, _renderTexture.graphic.imageFrame.frame, framePixels, matrix, colorTransform, blend, antialiasing, shaderEnabled ? shader : null);
-			else
-				camera.drawPixels(_renderTexture.graphic.imageFrame.frame, framePixels, matrix, colorTransform, blend, antialiasing, shaderEnabled ? shader : null);
+			setupRenderTexture(camera, bounds, command, matrix);
+			drawRenderTexture(camera, matrix, command);
 		}
 		else
 		#end
 		{
-			timeline.draw(camera, matrix, colorTransform, blend, antialiasing, shaderEnabled ? shader : null);
+			timeline.draw(camera, matrix, command);
 		}
 	}
+
+	function setupRenderTexture(camera:FlxCamera, bounds:FlxRect, ?command:AnimateDrawCommand, matrix:FlxMatrix):Void
+	{
+		if (_renderTexture == null)
+			_renderTexture = new RenderTexture(Math.ceil(bounds.width), Math.ceil(bounds.height));
+
+		if (_renderTextureDirty)
+		{
+			final previousDepthCompareMode = command?.depthCompareMode;
+			if (command != null)
+			{
+				command.transform = null;
+				command.blend = NORMAL;
+				command.shader = null;
+				command.wrapMode = null;
+				command.depthCompareMode = null;
+			}
+
+			_renderTexture.init(Math.ceil(bounds.width), Math.ceil(bounds.height));
+			_renderTexture.drawToCamera(renderRTT.bind(_, _, bounds, command));
+			_renderTexture.render();
+			_renderTextureDirty = false;
+
+			if (command != null) command.depthCompareMode = previousDepthCompareMode;
+		}
+	}
+
+	function renderRTT(camera:FlxCamera, matrix:FlxMatrix, bounds:FlxRect, command:AnimateDrawCommand):Void
+	{
+		matrix.translate(-bounds.x, -bounds.y);
+		timeline.draw(camera, matrix, command);
+	}
+
+	function drawRenderTexture(camera:FlxCamera, matrix:FlxMatrix, ?command:AnimateDrawCommand):Void
+	{
+		_renderTexture.draw(this, camera, matrix, colorTransform, blend, antialiasing, shaderEnabled ? shader : null,
+			wrapMode, command?.depthCompareMode);
+	}
+
+	public var onSymbolDraw:Null<(symbol:SymbolInstance, command:AnimateDrawCommand) -> Void>;
 
 	function prepareAnimateMatrix(matrix:FlxMatrix, camera:FlxCamera, bounds:FlxRect):Void
 	{
@@ -279,15 +375,32 @@ class FlxAnimate extends FlxSprite
 		prepareDrawMatrix(matrix, camera);
 
 		if (layer != null)
-			layer.drawPixels(this, camera, frame, framePixels, matrix, colorTransform, blend, antialiasing, shaderEnabled ? shader : null);
+		{
+			layer.drawPixels(this, camera, frame, framePixels, matrix, colorTransform, blend, antialiasing, shaderEnabled ? shader : null,
+				wrapMode);
+		}
 		else
-			camera.drawPixels(frame, framePixels, matrix, colorTransform, blend, antialiasing, shaderEnabled ? shader : null);
+		{
+			camera.drawPixels(frame, framePixels, matrix, colorTransform, blend, antialiasing, shaderEnabled ? shader : null, wrapMode);
+		}
 	}
 
 	function prepareDrawMatrix(matrix:FlxMatrix, camera:FlxCamera):Void
 	{
 		final doStageMatrix:Bool = (isAnimate && applyStageMatrix);
-		if (doStageMatrix) matrix.translate(timeline._bounds.x, timeline._bounds.y);
+
+		if (doStageMatrix)
+		{
+			if (postStageMatrixApply)
+			{
+				matrix.translate(timeline._bounds.x, timeline._bounds.y);
+			}
+			else
+			{
+				matrix.concat(library.matrix);
+				matrix.translate(timeline._bounds.x * library.matrix.a, timeline._bounds.y * library.matrix.d);
+			}
+		}
 
 		matrix.translate(-origin.x, -origin.y);
 
@@ -308,13 +421,13 @@ class FlxAnimate extends FlxSprite
 
 		if (matrixExposed) matrix.concat(transformMatrix);
 		else {
-			if (bakedRotationAngle <= 0) {
+			//if (bakedRotationAngle <= 0) {
 				if (angle != 0)
 				{
 					updateTrig();
 					matrix.rotateWithTrig(_cosAngle, _sinAngle);
 				}
-			}
+			//}
 			if (skew.x != 0 || skew.y != 0)
 			{
 				updateSkew();
@@ -322,8 +435,10 @@ class FlxAnimate extends FlxSprite
 			}
 		}
 
-		// TODO: add some way to customize the order of this thing
-		if (doStageMatrix) matrix.concat(library.matrix);
+		if (doStageMatrix && postStageMatrixApply)
+		{
+			matrix.concat(library.matrix);
+		}
 
 		getScreenPosition(_point, camera).subtractPoint(offset).add(origin.x, origin.y);
 		matrix.translate(_point.x, _point.y);
@@ -364,6 +479,19 @@ class FlxAnimate extends FlxSprite
 			anim.updateTimelineBounds();
 
 		return v;
+	}
+
+	override function set_clipRect(rect:FlxRect):FlxRect
+	{
+		if (!isAnimate)
+			return super.set_clipRect(rect);
+
+		if (rect != null)
+			clipRect = rect.round();
+		else
+			clipRect = null;
+
+		return rect;
 	}
 
 	#if (flixel >= "5.4.0")
@@ -414,7 +542,7 @@ class FlxAnimate extends FlxSprite
 			framePixels = FilterRenderer.getBitmap((cam, m) ->
 			{
 				m.concat(mat);
-				timeline.draw(cam, m, null, NORMAL, true, null);
+				timeline.draw(cam, m);
 			}, bounds, false);
 			#else
 			framePixels = FilterRenderer.renderToBitmap((camera:FlxCamera, matrix:FlxMatrix) ->
@@ -427,7 +555,7 @@ class FlxAnimate extends FlxSprite
 				camera.height = Math.ceil(bounds.height);
 
 				timeline.currentFrame = animation.frameIndex;
-				timeline.draw(camera, matrix, null, NORMAL, true, null);
+				timeline.draw(camera, matrix);
 				camera.render();
 
 				if (camera.canvas.graphics.__bounds != null)
@@ -457,13 +585,14 @@ class FlxAnimate extends FlxSprite
 
 		isAnimate ? prepareAnimateMatrix(matrix, camera, timeline._bounds) : prepareDrawMatrix(matrix, camera);
 
+		_drawMatrixFromCull = isAnimate;
+		_drawMatrixCamera = camera;
+
 		if (isAnimate && renderStage)
 		{
-			var stageRect = library.stageRect;
-			rect.x = -timeline._bounds.x - (stageRect.width * 0.5);
-			rect.y = -timeline._bounds.y - (stageRect.height * 0.5);
-			rect.width = Math.max(rect.width, stageRect.width);
-			rect.height = Math.max(rect.height, stageRect.height);
+			final stageRect = this.library.stageRect;
+			final stageMatrix = this.library.matrix;
+			rect.union(FlxRect.weak(-timeline._bounds.x - stageMatrix.tx, -timeline._bounds.y - stageMatrix.ty, stageRect.width, stageRect.height));
 		}
 
 		Timeline.applyMatrixToRect(rect, matrix);
@@ -471,6 +600,33 @@ class FlxAnimate extends FlxSprite
 		return rect;
 	}
 	#end
+
+	static var _frameBoundsMatrix:FlxMatrix = new FlxMatrix();
+
+	/**
+	 * Returns the screen bounds of the current frame.
+	 *
+	 * @param rect		Optional, the rectangle used to input the final calculated values.
+	 * @param camera	Optional, the camera to calculate bounds for, uses the default camera if ``null``.
+	 * @return			``FlxRect`` with the current frame's screen bounds.
+	 */
+	public function getCurrentFrameBounds(?rect:FlxRect, ?camera:FlxCamera):FlxRect
+	{
+		if (!isAnimate)
+			return getScreenBounds(rect, camera);
+
+		if (camera == null)
+			camera = #if (flixel >= "6.0.0") getDefaultCamera() #else FlxG.camera #end;
+
+		final bounds = timeline._bounds;
+		final matrix = _frameBoundsMatrix;
+		matrix.identity();
+		matrix.translate(-bounds.x, -bounds.y);
+		prepareAnimateMatrix(matrix, camera, bounds);
+
+		rect = timeline.getBounds(animation.frameIndex, false, rect, null, true, true);
+		return Timeline.applyMatrixToRect(rect, matrix);
+	}
 
 	function getAnimateOrigin(?result:FlxPoint):FlxPoint
 	{
