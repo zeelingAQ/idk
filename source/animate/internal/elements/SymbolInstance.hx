@@ -91,48 +91,21 @@ class SymbolInstance extends AnimateElement<SymbolInstanceJson>
 
 	public function getFrameIndex(index:Int, frameIndex:Int = 0):Int
 	{
-		if (libraryItem == null)
-			return firstFrame;
-
-		var timeline = libraryItem.timeline;
-		var actualFrameCount = timeline.frameCount;
-		var effectiveFrames = actualFrameCount; // 默认用总帧数
-		
-		// 遍历 timeline 里的所有 Layer，找出最大的有效帧数
-		if (timeline.layers != null && timeline.layers.length > 0)
-		{
-			var maxLayerEffective = 0;
-			for (l in timeline.layers)
-			{
-				if (l.visible)
-				{
-					var le = l.getEffectiveFrameCount();
-					if (le > maxLayerEffective) maxLayerEffective = le;
-				}
-			}
-			if (maxLayerEffective > 0 && maxLayerEffective <= actualFrameCount)
-			{
-				effectiveFrames = maxLayerEffective;
-			}
-		}
-
-		var result = firstFrame + (index - frameIndex);
+		// 使用相对时间，杜绝 377 污染
+		var safeFrame = firstFrame + index;
+		var frameCount = libraryItem.timeline.frameCount;
 
 		switch (loopType)
 		{
 			case LoopType.LOOP:
-				if (effectiveFrames > 0)
-					result = FlxMath.wrap(result, 0, effectiveFrames - 1);
-
+				safeFrame = FlxMath.wrap(safeFrame, 0, frameCount - 1);
 			case LoopType.PLAY_ONCE:
-				if (effectiveFrames > 0 && result >= effectiveFrames)
-					result = -1; // 隐藏，防止卡在空帧上
-
+				safeFrame = FlxMath.minInt(safeFrame, frameCount - 1);
 			case LoopType.SINGLE_FRAME:
-				result = firstFrame;
+				safeFrame = firstFrame;
 		}
 
-		return result;
+		return safeFrame;
 	}
 
 	public function isSimpleSymbol():Bool
@@ -152,12 +125,7 @@ class SymbolInstance extends AnimateElement<SymbolInstanceJson>
 
 	override function getBounds(frameIndex:Int, ?rect:FlxRect, ?matrix:FlxMatrix, ?includeFilters:Bool = true, ?useCachedBounds:Bool = false):FlxRect
 	{
-		rect ??= FlxRect.get();
-
-		if (libraryItem == null)
-			return rect.set(0, 0, 0, 0);
-
-		if (libraryItem.timeline.parent != null && libraryItem.timeline.parent.existsSymbol(symbolName))
+		if (libraryItem != null && libraryItem.timeline.parent.existsSymbol(symbolName))
 			libraryItem = libraryItem.timeline.parent.getSymbol(symbolName);
 
 		var targetMatrix:FlxMatrix;
@@ -178,9 +146,6 @@ class SymbolInstance extends AnimateElement<SymbolInstanceJson>
 	override function draw(camera:FlxCamera, index:Int, frameIndex:Int, parentMatrix:FlxMatrix, ?transform:ColorTransform, ?blend:BlendMode,
 			?antialiasing:Bool, ?shader:FlxShader):Void
 	{
-		if (libraryItem == null)
-			return;
-
 		if (isColored)
 		{
 			var t = this.transform;
@@ -211,9 +176,6 @@ class SymbolInstance extends AnimateElement<SymbolInstanceJson>
 	function _drawTimeline(camera:FlxCamera, index:Int, frameIndex:Int, parentMatrix:FlxMatrix, transform:Null<ColorTransform>, blend:Null<BlendMode>,
 			antialiasing:Null<Bool>, shader:Null<FlxShader>)
 	{
-		if (libraryItem == null)
-			return;
-
 		_mat.copyFrom(matrix);
 		_mat.concat(parentMatrix);
 		libraryItem.timeline.currentFrame = getFrameIndex(index, frameIndex);

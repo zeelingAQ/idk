@@ -82,10 +82,7 @@ class Frame implements IFlxDestroyable
 		}
 
 		if (layer != null && layer.timeline != null)
-		{
 			layer.timeline.parent.setSymbolDirty(layer.timeline.name);
-			layer.clearEffectiveFrameCountCache();
-		}
 	}
 
 	@:access(animate.internal.Layer)
@@ -139,10 +136,11 @@ class Frame implements IFlxDestroyable
 			rect = Timeline.expandBounds(rect, tmpRect);
 		}
 
-		if (this.layer != null && this.layer.layerType == CLIPPED && this.layer.parentLayer != null)
+		if (this.layer.layerType == CLIPPED && this.layer.parentLayer != null)
 		{
 			tmpRect.set();
-			var maskerBounds = this.layer.parentLayer.getBounds(frameIndex + this.index, tmpRect, matrix, includeFilters, useCachedBounds);
+			// 去除绝对偏移
+			var maskerBounds = this.layer.parentLayer.getBounds(frameIndex, tmpRect, matrix, includeFilters, useCachedBounds);
 			Timeline.maskBounds(rect, maskerBounds);
 		}
 
@@ -166,7 +164,7 @@ class Frame implements IFlxDestroyable
 		this.index = frame.I;
 		this.duration = frame.DU;
 		this.name = frame.N ?? "";
-		this.blend = #if flash animate.internal.filters.Blend.fromInt(frame.B); #else frame.B; #end
+		this.blend = #if flash animate.internal.filters.Blend.fromInt(frame.B) #else frame.B #end;
 
 		var e = frame.E;
 		if (e != null)
@@ -262,16 +260,21 @@ class Frame implements IFlxDestroyable
 			_bakedIndices = isSimpleRender ? [for (i in 0...duration) 0] : [for (i in 0...duration) i];
 		}
 
-		frameIndex = _bakedIndices[frameIndex];
-		if (_bakedFrames[frameIndex] != null)
+		// 防止负数或越界
+		var safeFrame = frameIndex % duration;
+		if (safeFrame < 0) safeFrame += duration;
+		if (safeFrame >= _bakedIndices.length) safeFrame = _bakedIndices.length - 1;
+
+		safeFrame = _bakedIndices[safeFrame];
+		if (_bakedFrames[safeFrame] != null)
 			return;
 
-		var bakedFrame:Null<AtlasInstance> = FilterRenderer.maskFrame(this, frameIndex + this.index, layer);
+		var bakedFrame:Null<AtlasInstance> = FilterRenderer.maskFrame(this, safeFrame, layer);
 		if (bakedFrame == null)
 			return;
 
 		bakedFrame.parentFrame = this;
-		_bakedFrames[frameIndex] = bakedFrame;
+		_bakedFrames[safeFrame] = bakedFrame;
 
 		if (bakedFrame.frame == null || bakedFrame.frame.frame.isEmpty)
 			bakedFrame.visible = false;
@@ -291,24 +294,28 @@ class Frame implements IFlxDestroyable
 	{
 		var blend = Blend.resolve(this.blend, blend);
 
+		// 使用安全的相对帧
+		var safeFrame = currentFrame % duration;
+		if (safeFrame < 0) safeFrame += duration;
+
 		if (_dirty)
 		{
 			if (layer != null)
-				_bakeFrame(currentFrame - this.index);
+				_bakeFrame(safeFrame);
 		}
 
 		if (_bakedFrames != null)
 		{
-			var bakedFrame = _bakedFrames[_bakedIndices[currentFrame - this.index]];
+			var bakedFrame = _bakedFrames[_bakedIndices[safeFrame]];
 			if (bakedFrame != null)
 			{
 				if (bakedFrame.visible)
-					bakedFrame.draw(camera, currentFrame, this.index, parentMatrix, transform, blend, antialiasing, shader);
+					bakedFrame.draw(camera, safeFrame, 0, parentMatrix, transform, blend, antialiasing, shader);
 				return;
 			}
 		}
 
-		_drawElements(camera, currentFrame, parentMatrix, transform, blend, antialiasing, shader);
+		_drawElements(camera, safeFrame, parentMatrix, transform, blend, antialiasing, shader);
 	}
 
 	@:allow(animate.internal.FilterRenderer)
@@ -318,7 +325,8 @@ class Frame implements IFlxDestroyable
 		for (element in elements)
 		{
 			if (element.visible)
-				element.draw(camera, currentFrame, this.index, parentMatrix, transform, blend, antialiasing, shader);
+				// 强制传 0 切断污染
+				element.draw(camera, currentFrame, 0, parentMatrix, transform, blend, antialiasing, shader);
 		}
 	}
 

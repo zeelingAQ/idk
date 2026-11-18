@@ -56,6 +56,7 @@ import flixel.util.FlxColor;
 #end
 class FilterRenderer
 {
+		
 	#if !flash
 	public static function maskFrame(frame:Frame, currentFrame:Int, layer:Layer):Null<AtlasInstance>
 	{
@@ -72,6 +73,7 @@ class FilterRenderer
 		
 		if (maskerFrame == null || maskerFrame.elements.length <= 0)
 			return null;
+            
 
 		var maskerBounds = maskerFrame.getBounds(currentFrame - maskerFrame.index);
 		if (maskerBounds.isEmpty) // Has no masker, render as normal
