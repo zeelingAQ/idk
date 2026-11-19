@@ -64,7 +64,7 @@ class FilterRenderer
 
 		var maskerFrame = masker.getFrameAtIndex(currentFrame);
 		
-		// 【防越界保护】
+		// 【安全防护】
 		if (maskerFrame == null && masker.frameCount > 0)
 		{
 			maskerFrame = masker.getFrameAtIndex(currentFrame % masker.frameCount);
@@ -567,7 +567,11 @@ class FilterRenderer
 		var inflate = #if flash new Rectangle(); #else Rectangle.__pool.get(); #end
 		for (filter in filters)
 		{
-			var __leftExtension = 0; var __topExtension = 0; var __bottomExtension = 0; var __rightExtension = 0;
+			var __leftExtension = 0;
+			var __topExtension = 0;
+			var __bottomExtension = 0;
+			var __rightExtension = 0;
+
 			if (filter is BlurFilter)
 			{
 				var blur:BlurFilter = cast filter;
@@ -592,6 +596,17 @@ class FilterRenderer
 				__bottomExtension = Math.ceil((__offsetY > 0 ? __offsetY : 0) + dropShadow.blurY);
 				__leftExtension = Math.ceil((__offsetX < 0 ? -__offsetX : 0) + dropShadow.blurX);
 				__rightExtension = Math.ceil((__offsetX > 0 ? __offsetX : 0) + dropShadow.blurX);
+			}
+			#if flash
+			else if (filter is flash.filters.GradientGlowFilter)
+			{
+				var gradientGlow:flash.filters.GradientGlowFilter = cast filter;
+				var __offsetX = Std.int(gradientGlow.distance * FlxMath.fastCos(gradientGlow.angle * Math.PI / 180));
+				var __offsetY = Std.int(gradientGlow.distance * FlxMath.fastSin(gradientGlow.angle * Math.PI / 180));
+				__topExtension = Math.ceil((__offsetY < 0 ? -__offsetY : 0) + gradientGlow.blurY);
+				__bottomExtension = Math.ceil((__offsetY > 0 ? __offsetY : 0) + gradientGlow.blurY);
+				__leftExtension = Math.ceil((__offsetX < 0 ? -__offsetX : 0) + gradientGlow.blurX);
+				__rightExtension = Math.ceil((__offsetX > 0 ? __offsetX : 0) + gradientGlow.blurX);
 			}
 			#else
 			else
