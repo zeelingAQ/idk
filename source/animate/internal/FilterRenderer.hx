@@ -36,6 +36,7 @@ import animate.internal.elements.AtlasInstance.BakedInstance;
 import flixel.util.FlxColor;
 #end
 
+// TODO: make renderer use textures instead of full bitmaps
 #if !flash
 @:access(flixel.FlxCamera)
 @:access(flixel.graphics.frames.FlxFrame)
@@ -63,22 +64,15 @@ class FilterRenderer
 			return null;
 
 		var maskerFrame = masker.getFrameAtIndex(currentFrame);
-		
-		// 【安全防护】
-		if (maskerFrame == null && masker.frameCount > 0)
-		{
-			maskerFrame = masker.getFrameAtIndex(currentFrame % masker.frameCount);
-		}
-		
 		if (maskerFrame == null || maskerFrame.elements.length <= 0)
 			return null;
 
 		var maskerBounds = maskerFrame.getBounds(currentFrame - maskerFrame.index);
-		if (maskerBounds.isEmpty)
+		if (maskerBounds.isEmpty) // Has no masker, render as normal
 			return null;
 
 		var maskedBounds = frame.getBounds(currentFrame - frame.index);
-		if (maskedBounds.isEmpty)
+		if (maskedBounds.isEmpty) // Empty instance, nothing to add here
 			return new AtlasInstance();
 
 		var masked:Null<BitmapData> = renderToBitmap((cam, mat) ->
@@ -89,6 +83,7 @@ class FilterRenderer
 				cam.canvas.graphics.__bounds = maskedBounds.copyToFlash(new Rectangle());
 		});
 
+		// Nothing was rendered on the mask
 		if (masked == null)
 			return new AtlasInstance();
 
@@ -104,6 +99,7 @@ class FilterRenderer
 		var intersectWidth = Math.min(maskerBounds.right, maskedBounds.right) - intersectX;
 		var intersectHeight = Math.min(maskerBounds.bottom, maskedBounds.bottom) - intersectY;
 
+		// copy masker channel
 		var rect = Rectangle.__pool.get();
 		rect.setTo(intersectX - maskerBounds.x, intersectY - maskerBounds.y, intersectWidth, intersectHeight);
 
@@ -122,11 +118,13 @@ class FilterRenderer
 
 		Rectangle.__pool.release(rect);
 
+		// create result masked atlas instance
 		var element = new BakedInstance();
 		element.frame = frame;
 		element.blend = blend;
 		element.matrix = new FlxMatrix(1, 0, 0, 1, intersectX, intersectY);
 
+		// we wont need to keep the masker anymore
 		FlxDestroyUtil.dispose(masker);
 
 		return element;
@@ -216,7 +214,8 @@ class FilterRenderer
 
 				for (i => filter in filters)
 				{
-					if (filter == null) continue;
+					if (filter == null)
+						continue;
 
 					if (filter is BlurFilter)
 					{
@@ -229,6 +228,7 @@ class FilterRenderer
 						copyBlur.blurY /= scale.y;
 						scaledFilters.push(copyBlur);
 
+						// value... fresh from my ass
 						final qualityFactor:Float = (quality == FilterQuality.HIGH) ? 1.25 : quality.getQualityFactor();
 						blur.blurX = Math.pow(blur.blurX, 0.85) / (scale.x * qualityFactor);
 						blur.blurY = Math.pow(blur.blurY, 0.85) / (scale.y * qualityFactor);
@@ -256,6 +256,7 @@ class FilterRenderer
 		frame.parent.destroyOnNoUse = false;
 		filterFrame(frame, filters);
 
+		// Small offset to account for pixel-innacuracies
 		var xOffset:Float = ((resultFilteredBounds.width * scale.x) - filteredBounds.width) / 2;
 		var yOffset:Float = ((resultFilteredBounds.height * scale.y) - filteredBounds.height) / 2;
 
@@ -272,16 +273,25 @@ class FilterRenderer
 
 	public static function filterFrame(frame:FlxFrame, ?filters:Array<BitmapFilter>, ?point:Point):Void
 	{
-		if (filters == null || filters.length <= 0) return;
+		if (filters == null || filters.length <= 0)
+			return;
 
 		var filterFrame = new FlxFrame(FlxGraphic.fromRectangle(Math.ceil(frame.frame.width), Math.ceil(frame.frame.height), 0, true));
 		filterFrame.parent.bitmap = applyFilter(filterFrame.parent.bitmap, frame.parent.bitmap, filters, point);
 		filterFrame.frame = FlxRect.get(0, 0, filterFrame.parent.bitmap.width, filterFrame.parent.bitmap.height);
 
+		// Remove & replace the original bitmap
 		FlxDestroyUtil.dispose(frame.parent.bitmap);
 		filterFrame.copyTo(frame);
 	}
 
+	/**
+	 * Generates a new bitmap with filters from an input bitmap.
+	 * @param target Optional, the bitmap data to use for output
+	 * @param bitmap The input bitmap to use for filtering
+	 * @param filters Array of the filters to apply to the bitmap
+	 * @param point Optional, point used to offset the final rendered output
+	 */
 	public static function applyFilter(?target:BitmapData, bitmap:BitmapData, filters:Array<BitmapFilter>, ?point:Point):BitmapData
 	{
 		if (target == null)
@@ -303,13 +313,18 @@ class FilterRenderer
 		{
 			if (filter != null)
 			{
-				if (filter.__needSecondBitmapData) needsSecondBitmap = true;
-				if (filter.__preserveObject) needsPreserveObject = true;
+				if (filter.__needSecondBitmapData)
+					needsSecondBitmap = true;
+				if (filter.__preserveObject)
+					needsPreserveObject = true;
 			}
 		}
 
-		if (needsSecondBitmap) _filterBmp1 = new BitmapData(target.width, target.height, true, 0);
-		if (needsPreserveObject) _filterBmp2 = new BitmapData(_filterBmp1.width, _filterBmp1.height, true, 0);
+		if (needsSecondBitmap)
+			_filterBmp1 = new BitmapData(target.width, target.height, true, 0);
+
+		if (needsPreserveObject)
+			_filterBmp2 = new BitmapData(_filterBmp1.width, _filterBmp1.height, true, 0);
 		#end
 
 		return __applyFilter(target, _filterBmp1, _filterBmp2, bitmap, filters, point);
@@ -317,7 +332,8 @@ class FilterRenderer
 
 	static function __applyFilter(target:BitmapData, ?target1:BitmapData, ?target2:BitmapData, bmp:BitmapData, filters:Array<BitmapFilter>, ?point:Point)
 	{
-		if (filters == null || filters.length == 0) return bmp;
+		if (filters == null || filters.length == 0)
+			return bmp;
 
 		var bitmap:BitmapData = target;
 		var bitmap2:BitmapData = target1 ?? bmp;
@@ -336,7 +352,10 @@ class FilterRenderer
 		renderer.__worldColorTransform.__identity();
 
 		bmp.__renderTransform.identity();
-		if (point != null) bmp.__renderTransform.translate(point.x, point.y);
+		if (point != null)
+		{
+			bmp.__renderTransform.translate(point.x, point.y);
+		}
 
 		renderer.setShader(renderer.__defaultShader);
 		renderer.__setRenderTarget(bitmap);
@@ -348,7 +367,8 @@ class FilterRenderer
 		#if desktop
 		for (filter in filters)
 		{
-			if (filter != null) bitmap = __renderGpuFilter(filter, bitmap, bitmap2, bitmap3);
+			if (filter != null)
+				bitmap = __renderGpuFilter(filter, bitmap, bitmap2, bitmap3);
 		}
 		#end
 
@@ -363,14 +383,18 @@ class FilterRenderer
 		#if !desktop
 		for (filter in filters)
 		{
-			if (filter != null) bitmap = __renderCpuFilter(filter, bitmap, point);
+			if (filter != null)
+				bitmap = __renderCpuFilter(filter, bitmap, point);
 		}
 		#end
 
-		if (bitmap2 != bmp) FlxDestroyUtil.dispose(bitmap2);
+		if (bitmap2 != bmp) // in case the filter reuses the bitmap due to not needing a second one
+			FlxDestroyUtil.dispose(bitmap2);
+
 		FlxDestroyUtil.dispose(bitmap3);
 
 		Point.__pool.release(point);
+
 		return bitmap;
 	}
 
@@ -398,18 +422,29 @@ class FilterRenderer
 		}
 
 		filter.__renderDirty = false;
+
 		return bitmap;
 	}
 
 	static function __renderCpuFilter(filter:BitmapFilter, bitmap:BitmapData, point:Point)
 	{
-		if (filter is BlurFilter) StackBlur.applyFilter(bitmap, cast filter, point);
-		else if (filter is ColorMatrixFilter) bitmap.applyFilter(bitmap, bitmap.rect, point, filter);
+		if (filter is BlurFilter)
+		{
+			StackBlur.applyFilter(bitmap, cast filter, point);
+		}
+		else if (filter is ColorMatrixFilter)
+		{
+			bitmap.applyFilter(bitmap, bitmap.rect, point, filter);
+		}
 		else
 		{
+			// TODO: this shit really confuses me, i gotta look into it
+			// I think the bitmapdata is still in the gpu so it isnt accesible in the cpu?
+			// But it doesnt happen for the color matrix filter, so... idk
 			bitmap = bitmap.clone();
 			bitmap.applyFilter(bitmap, bitmap.rect, point, filter);
 		}
+
 		return bitmap;
 	}
 
@@ -431,7 +466,9 @@ class FilterRenderer
 	}
 
 	static var renderer(get, null):OpenGLRenderer;
-	static function get_renderer() return (renderer != null) ? renderer : (renderer = __createRenderer());
+
+	static function get_renderer()
+		return (renderer != null) ? renderer : (renderer = __createRenderer());
 
 	static function __createRenderer():OpenGLRenderer
 	{
@@ -441,7 +478,10 @@ class FilterRenderer
 		return renderer;
 	}
 	#else
-	public static function bakeFilters(movieclip:MovieClipInstance, frameIndex:Int, filters:Array<BitmapFilter>, scale:FlxPoint, quality:FilterQuality = MEDIUM):AtlasInstance
+	// Basic Flash filter baking impl
+	// NOTE: this is NOWHERE near done lol, still needs some work, its not really a priority for me though
+	public static function bakeFilters(movieclip:MovieClipInstance, frameIndex:Int, filters:Array<BitmapFilter>, scale:FlxPoint,
+			quality:FilterQuality = MEDIUM):AtlasInstance
 	{
 		var filteredBounds:FlxRect = movieclip.getBounds(0);
 		expandFilterBounds(filteredBounds, filters);
@@ -459,7 +499,8 @@ class FilterRenderer
 		var rect = new Rectangle(0, 0, bitmap.width, bitmap.height);
 		var point = new Point(0, 0);
 
-		for (filter in filters) bitmap.applyFilter(bitmap, rect, point, filter);
+		for (filter in filters)
+			bitmap.applyFilter(bitmap, rect, point, filter);
 
 		var mat = new FlxMatrix();
 		mat.translate(filteredBounds.left, filteredBounds.top);
@@ -467,23 +508,27 @@ class FilterRenderer
 		var element = new AtlasInstance();
 		element.frame = frame;
 		element.matrix = mat;
+
 		return element;
 	}
 
 	public static function maskFrame(frame:Frame, currentFrame:Int, layer:Layer):Null<AtlasInstance>
 	{
 		var masker = layer.parentLayer;
-		if (masker == null) return null;
+		if (masker == null)
+			return null;
 
 		var maskerFrame = masker.getFrameAtIndex(currentFrame);
-		if (maskerFrame == null && masker.frameCount > 0) maskerFrame = masker.getFrameAtIndex(currentFrame % masker.frameCount);
-		if (maskerFrame == null) return null;
+		if (maskerFrame == null)
+			return null;
 
 		var maskerBounds = maskerFrame.getBounds(currentFrame - maskerFrame.index);
-		if (maskerBounds.isEmpty) return null;
+		if (maskerBounds.isEmpty) // Has no masker, render as normal
+			return null;
 
 		var maskedBounds = frame.getBounds(currentFrame - frame.index);
-		if (maskedBounds.isEmpty) return new AtlasInstance();
+		if (maskedBounds.isEmpty) // Empty instance, nothing to add here
+			return new AtlasInstance();
 
 		var masker = getBitmap((cam, mat) -> maskerFrame._drawElements(cam, currentFrame, mat, null, NORMAL, false, null), maskerBounds);
 		var masked = getBitmap((cam, mat) -> frame._drawElements(cam, currentFrame, mat, null, NORMAL, false, null), maskedBounds);
@@ -501,6 +546,7 @@ class FilterRenderer
 		element.matrix = new FlxMatrix(1, 0, 0, 1, intersectX, intersectY);
 
 		FlxDestroyUtil.dispose(masker);
+
 		return element;
 	}
 
@@ -531,6 +577,7 @@ class FilterRenderer
 		bitmap.copyPixels(cam.buffer, bitmap.rect, new Point(), null, null, true);
 		cam.put();
 		cam.buffer.unlock();
+
 		return bitmap;
 	}
 
@@ -550,6 +597,7 @@ class FilterRenderer
 					masked.setPixel32(x, y, FlxColor.TRANSPARENT);
 					continue;
 				}
+
 				var finalColor:FlxColor = masked.getPixel32(x, y);
 				finalColor.alphaFloat *= maskAlpha;
 				masked.setPixel32(x, y, finalColor);
@@ -558,6 +606,7 @@ class FilterRenderer
 
 		masked.unlock();
 		masker.unlock();
+
 		return masked;
 	}
 	#end
@@ -630,6 +679,7 @@ class FilterRenderer
 		baseBounds.height = Math.max(baseBounds.height, baseBounds.height + inflate.height);
 
 		#if !flash Rectangle.__pool.release(inflate); #end
+
 		return baseBounds;
 	}
 }
@@ -651,6 +701,7 @@ class CamPool extends FlxCamera implements IFlxPooled
 		pixelPerfectRender = true;
 	}
 
+	// TODO: use this as a replacement of Frame.__isDirtyCall
 	public static function getForBounds(rect:FlxRect)
 	{
 		var cam = get();
@@ -658,9 +709,19 @@ class CamPool extends FlxCamera implements IFlxPooled
 		return cam;
 	}
 
-	public static function get() return pool.get();
-	public function put() pool.putUnsafe(this);
+	public static function get()
+	{
+		return pool.get();
+	}
+
+	public function put()
+	{
+		pool.putUnsafe(this);
+	}
+
 	public function putWeak() {}
+
 	override function destroy() {}
+
 	private var _inPool:Bool;
 }
