@@ -64,7 +64,7 @@ class FilterRenderer
 
 		var maskerFrame = masker.getFrameAtIndex(currentFrame);
 		
-		// 【精准手术】防越界查表
+		// 【防越界保护】
 		if (maskerFrame == null && masker.frameCount > 0)
 		{
 			maskerFrame = masker.getFrameAtIndex(currentFrame % masker.frameCount);
@@ -396,6 +396,7 @@ class FilterRenderer
 			renderer.__setRenderTarget(bitmap);
 			renderer.__renderFilterPass(bitmap2, renderer.__defaultDisplayShader, filter.__smooth);
 		}
+
 		filter.__renderDirty = false;
 		return bitmap;
 	}
