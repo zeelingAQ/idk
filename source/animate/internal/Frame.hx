@@ -47,6 +47,12 @@ class Frame implements IFlxDestroyable
 		this.index = 0;
 	}
 
+	/**
+	 * Adds an ``Element`` object to the elements list of the frame.
+	 * If the frame is masked it will require a redraw.
+	 *
+	 * @param element Element object to add to the frame. It won't be added if its already part of the list.
+	 */
 	public function add(element:Element):Void
 	{
 		if (elements.indexOf(element) != -1)
@@ -57,6 +63,13 @@ class Frame implements IFlxDestroyable
 		setDirty();
 	}
 
+	/**
+	 * Insert an ``Element`` object to an index of the elements list of the frame.
+	 * If the frame is masked it will require a redraw.
+	 *
+	 * @param index		Index where to add the element to.
+	 * @param element 	Element object to add to the frame. It won't be added if its already part of the list.
+	 */
 	public function insert(index:Int, element:Element)
 	{
 		if (elements.indexOf(element) != -1)
@@ -67,6 +80,10 @@ class Frame implements IFlxDestroyable
 		setDirty();
 	}
 
+	/**
+	 * Clears up the memory from the previously baked frames and
+	 * sets the frame ready for a new rebake of masks/filters.
+	 */
 	public function setDirty()
 	{
 		if (_requireBake)
@@ -82,9 +99,21 @@ class Frame implements IFlxDestroyable
 		}
 
 		if (layer != null && layer.timeline != null)
+		{
 			layer.timeline.parent.setSymbolDirty(layer.timeline.name);
+			layer.timeline.clearEffectiveFrameCountCache();
+		}
 	}
 
+	/**
+	 *	Packs and replaces the selected elements from the frame into a new symbol item and instance.
+	 *	NOTE: Doesn't include the new symbol item into the texture atlas library/dictionary.
+	 *
+	 * @param fromIndex Index where to start converting elements from.
+	 * @param toIndex 	Index where to stop converting elements from.
+	 * @param type 		Optional, type of symbol instance to create (``GRAPHIC``, ``MOVIECLIP``, ``BUTTON``).
+	 * @return 			An new symbol instance containing the selected elements.
+	 */
 	@:access(animate.internal.Layer)
 	public function convertToSymbol(fromIndex:Int, toIndex:Int, ?type:ElementType = GRAPHIC):SymbolInstance
 	{
@@ -110,17 +139,32 @@ class Frame implements IFlxDestroyable
 		return instance;
 	}
 
+	/**
+	 * Applies a function to all the elements of the frame.
+	 *
+	 * @param callback The ``Element->Void`` function to call for all the existing elements.
+	 */
 	public function forEachElement(callback:Element->Void):Void
 	{
 		for (element in this.elements)
 			callback(element);
 	}
 
+	/**
+	 * Returns the bounds of the keyframe at a specific index.
+	 *
+	 * @param frameIndex			The frame index where to calculate the bounds from.
+	 * @param rect					Optional, the rectangle used to input the final calculated values.
+	 * @param matrix				Optional, the matrix to apply to the bounds calculation.
+	 * @param includeFilters		Optional, if to include filtered bounds in the calculation or use the unfilitered ones (true to Flash's bounds).
+	 * @return						A ``FlxRect`` with the complete frames's bounds at an index, empty if no elements were found.
+	 */
 	public function getBounds(frameIndex:Int, ?rect:FlxRect, ?matrix:FlxMatrix, ?includeFilters:Bool = true, ?useCachedBounds:Bool = false):FlxRect
 	{
 		rect ??= FlxRect.get();
 		rect.set();
 
+		// Returns empty bounds if theres no elements in the frame
 		if (elements.length <= 0)
 		{
 			(matrix != null) ? rect.set(matrix.tx, matrix.ty, 0, 0) : rect.set(0, 0, 0, 0);
@@ -129,6 +173,7 @@ class Frame implements IFlxDestroyable
 
 		var tmpRect = FlxRect.get();
 
+		// Loop through the bounds of each element
 		rect = elements[0].getBounds(frameIndex, rect, matrix, includeFilters, useCachedBounds);
 		for (i in 1...elements.length)
 		{
@@ -136,11 +181,11 @@ class Frame implements IFlxDestroyable
 			rect = Timeline.expandBounds(rect, tmpRect);
 		}
 
-		if (this.layer.layerType == CLIPPED && this.layer.parentLayer != null)
+		// Calculate masked bounds of the frame
+		if (this.layer != null && this.layer.layerType == CLIPPED && this.layer.parentLayer != null)
 		{
 			tmpRect.set();
-			// 【修复】剥离绝对帧污染
-			var maskerBounds = this.layer.parentLayer.getBounds(frameIndex, tmpRect, matrix, includeFilters, useCachedBounds);
+			var maskerBounds = this.layer.parentLayer.getBounds(frameIndex + this.index, tmpRect, matrix, includeFilters, useCachedBounds);
 			Timeline.maskBounds(rect, maskerBounds);
 		}
 
@@ -164,7 +209,7 @@ class Frame implements IFlxDestroyable
 		this.index = frame.I;
 		this.duration = frame.DU;
 		this.name = frame.N ?? "";
-		this.blend = #if flash animate.internal.filters.Blend.fromInt(frame.B) #else frame.B #end;
+		this.blend = #if flash animate.internal.filters.Blend.fromInt(frame.B); #else frame.B; #end
 
 		var e = frame.E;
 		if (e != null)
@@ -207,7 +252,7 @@ class Frame implements IFlxDestroyable
 		{
 			final soundPath:String = parent.path + '/LIBRARY/' + frame.SND.N;
 
-			#if (cpp || hl)
+			#if (cpp || hl) // Default sound loading has issues with WAV files on native for some reason
 			if (soundPath.endsWith(".wav"))
 			{
 				var bytes = FlxAnimateAssets.getBytes(soundPath);
@@ -239,9 +284,12 @@ class Frame implements IFlxDestroyable
 			return;
 		}
 
+		// Prepare vector to store masks
 		if (_bakedFrames == null)
 			_bakedFrames = new BakedFramesVector(duration);
 
+		// Prepare indices vector
+		// This is used as a way to save on the necessary bitmaps to render a mask
 		if (_bakedIndices == null)
 		{
 			var isSimpleRender:Bool = true;
@@ -260,25 +308,21 @@ class Frame implements IFlxDestroyable
 			_bakedIndices = isSimpleRender ? [for (i in 0...duration) 0] : [for (i in 0...duration) i];
 		}
 
-		// 防止数组越界
-		var safeIndex = frameIndex % _bakedIndices.length;
-		if (safeIndex < 0) safeIndex += _bakedIndices.length;
-		safeIndex = _bakedIndices[safeIndex];
-
-		if (_bakedFrames[safeIndex] != null)
+		frameIndex = _bakedIndices[frameIndex];
+		if (_bakedFrames[frameIndex] != null)
 			return;
 
-		// 【修复】剥离绝对帧，传入安全的相对帧
-		var bakedFrame:Null<AtlasInstance> = FilterRenderer.maskFrame(this, safeIndex, layer);
+		var bakedFrame:Null<AtlasInstance> = FilterRenderer.maskFrame(this, frameIndex + this.index, layer);
 		if (bakedFrame == null)
 			return;
 
 		bakedFrame.parentFrame = this;
-		_bakedFrames[safeIndex] = bakedFrame;
+		_bakedFrames[frameIndex] = bakedFrame;
 
 		if (bakedFrame.frame == null || bakedFrame.frame.frame.isEmpty)
 			bakedFrame.visible = false;
 
+		// All frames have been baked
 		if (_dirty && _bakedFrames.isFull())
 			_dirty = false;
 	}
@@ -294,33 +338,24 @@ class Frame implements IFlxDestroyable
 	{
 		var blend = Blend.resolve(this.blend, blend);
 
-		// 【修复核心】彻底切断 currentFrame - this.index，计算出纯粹的安全帧
-		var safeFrame = currentFrame - this.index;
-		if (safeFrame < 0) safeFrame = 0;
-		
-		var wrappedFrame = safeFrame % duration;
-		if (wrappedFrame < 0) wrappedFrame += duration;
-
 		if (_dirty)
 		{
 			if (layer != null)
-				_bakeFrame(wrappedFrame);
+				_bakeFrame(currentFrame - this.index);
 		}
 
 		if (_bakedFrames != null)
 		{
-			var bakedFrame = _bakedFrames[_bakedIndices[wrappedFrame]];
+			var bakedFrame = _bakedFrames[_bakedIndices[currentFrame - this.index]];
 			if (bakedFrame != null)
 			{
 				if (bakedFrame.visible)
-					// 传 0 避免下级污染
-					bakedFrame.draw(camera, wrappedFrame, 0, parentMatrix, transform, blend, antialiasing, shader);
+					bakedFrame.draw(camera, currentFrame, this.index, parentMatrix, transform, blend, antialiasing, shader);
 				return;
 			}
 		}
 
-		// 【修复核心】在这里把绝对偏移滤掉，传相对索引给下级
-		_drawElements(camera, wrappedFrame, parentMatrix, transform, blend, antialiasing, shader);
+		_drawElements(camera, currentFrame, parentMatrix, transform, blend, antialiasing, shader);
 	}
 
 	@:allow(animate.internal.FilterRenderer)
@@ -330,8 +365,7 @@ class Frame implements IFlxDestroyable
 		for (element in elements)
 		{
 			if (element.visible)
-				// 【修复】把 frameIndex 改为 0，彻底切断 377 往下传递
-				element.draw(camera, currentFrame, 0, parentMatrix, transform, blend, antialiasing, shader);
+				element.draw(camera, currentFrame, this.index, parentMatrix, transform, blend, antialiasing, shader);
 		}
 	}
 
@@ -352,59 +386,4 @@ class Frame implements IFlxDestroyable
 	{
 		return '{name: "$name", index: $index, duration: $duration}';
 	}
-}
-
-extern abstract BakedFramesVector(Array<AtlasInstance>)
-{
-	public inline function new(length:Int)
-	{
-		#if cpp
-		this = cpp.NativeArray.create(length);
-		#else
-		this = [];
-		for (i in 0...length)
-			this.push(null);
-		#end
-	}
-
-	public inline function isFull():Bool
-	{
-		return this.indexOf(null) == -1;
-	}
-
-	public inline function setNull(index:Int):Void
-	{
-		var frame = get(index);
-		if (frame == null)
-			return;
-
-		if (frame.frame != null)
-		{
-			frame.frame.parent = FlxDestroyUtil.destroy(frame.frame.parent);
-			frame.frame = FlxDestroyUtil.destroy(frame.frame);
-		}
-
-		set(index, FlxDestroyUtil.destroy(frame));
-	}
-
-	public inline function dispose():Void
-	{
-		for (i in 0...this.length)
-			setNull(i);
-	}
-
-	public inline function findFrame(index:Int):Null<AtlasInstance>
-	{
-		final max:Int = this.length - 1;
-		final lowerBound:Int = (index < 0) ? 0 : index;
-		return get((lowerBound > max) ? max : lowerBound);
-	}
-
-	@:arrayAccess
-	public inline function get(index:Int):AtlasInstance
-		return #if cpp cpp.NativeArray.unsafeGet(this, index) #else this[index] #end;
-
-	@:arrayAccess
-	public inline function set(index:Int, value:AtlasInstance):AtlasInstance
-		return #if cpp cpp.NativeArray.unsafeSet(this, index, value) #else this[index] = value #end;
 }

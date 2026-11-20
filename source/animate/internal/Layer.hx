@@ -72,9 +72,14 @@ class Layer implements IFlxDestroyable
 
 		setBlankKeyframe(index);
 		var keyframe = getFrameAtIndex(index);
+		if (keyframe == null)
+			return;
 
 		keyframe.elements = lastFrame.elements.copy();
 		keyframe.name = lastFrame.name;
+
+		if (timeline != null)
+			timeline.clearEffectiveFrameCountCache();
 	}
 
 	/**
@@ -85,6 +90,8 @@ class Layer implements IFlxDestroyable
 	public function setBlankKeyframe(index:Int)
 	{
 		var lastFrame = getFrameAtIndex(index);
+		if (lastFrame == null)
+			return;
 
 		var startIndex = lastFrame.index;
 		var startDuration = lastFrame.duration;
@@ -96,6 +103,9 @@ class Layer implements IFlxDestroyable
 		frames.insert(frames.indexOf(lastFrame) + 1, keyframe);
 		for (i in 0...keyframe.duration)
 			frameIndices[index + i] = frames.length - 1;
+
+		if (timeline != null)
+			timeline.clearEffectiveFrameCountCache();
 	}
 
 	/**
@@ -179,14 +189,17 @@ class Layer implements IFlxDestroyable
 
 		if (this.layerType != FOLDER)
 		{
-			for (i => frameJson in layer.FR)
+			if (layer.FR != null)
 			{
-				var frame = new Frame(this);
-				frame._loadJson(frameJson, parent);
-				frames.push(frame);
+				for (i => frameJson in layer.FR)
+				{
+					var frame = new Frame(this);
+					frame._loadJson(frameJson, parent);
+					frames.push(frame);
 
-				for (_ in 0...frame.duration)
-					frameIndices.push(i);
+					for (_ in 0...frame.duration)
+						frameIndices.push(i);
+				}
 			}
 		}
 
@@ -229,6 +242,7 @@ class Layer implements IFlxDestroyable
 
 		frames = null;
 		frameIndices = null;
+		timeline = null;
 	}
 
 	inline function get_frameCount():Int

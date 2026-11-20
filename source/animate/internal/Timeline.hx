@@ -29,6 +29,7 @@ class Timeline implements IFlxDestroyable
 
 	var _layerMap:Map<String, Layer>;
 	var _bounds:FlxRect;
+	var _cachedEffectiveFrameCount:Int = -1;
 
 	public function new(?timeline:TimelineJson, parent:FlxAnimateFrames, ?name:String)
 	{
@@ -292,7 +293,7 @@ class Timeline implements IFlxDestroyable
 
 	/**
 	 * Use this function to clear the currently cached timeline bounds.
-	 *
+	 * 
 	 * Some functions like ``getWholeBounds`` require the use of cached bounds to greatly save on performance.
 	 * However, if the user changed something about the Texture Atlas, a recache of those bounds may be neccesary.
 	 */
@@ -301,6 +302,81 @@ class Timeline implements IFlxDestroyable
 		for (i in _cachedBounds.iterator())
 			i.put();
 		_cachedBounds.clear();
+	}
+
+	/**
+	 * Returns the number of frames up to (and including) the last frame that
+	 * contains visible elements.
+	 *
+	 * Adobe Animate often exports trailing blank frames at the end of a timeline
+	 * (used as end-of-animation pauses). Those blank frames should NOT be part of
+	 * the wrap/clamp range used by symbol instances, otherwise child symbols end up
+	 * frozen on an empty frame and disappear. This method excludes them.
+	 *
+	 * The result is cached. Call ``clearEffectiveFrameCountCache()`` if the
+	 * timeline data is modified at runtime.
+	 */
+	public function getEffectiveFrameCount():Int
+	{
+		if (_cachedEffectiveFrameCount >= 0)
+			return _cachedEffectiveFrameCount;
+
+		if (frameCount <= 0)
+		{
+			_cachedEffectiveFrameCount = 0;
+			return 0;
+		}
+
+		var lastNonEmpty:Int = -1;
+		for (i in 0...frameCount)
+		{
+			if (isFrameNonEmpty(i))
+			{
+				lastNonEmpty = i;
+				break;
+			}
+		}
+
+		if (lastNonEmpty < 0)
+		{
+			// No frame has any element; fall back to the raw frameCount.
+			_cachedEffectiveFrameCount = frameCount;
+			return _cachedEffectiveFrameCount;
+		}
+
+		// Walk backwards from the end to find the last non-empty frame.
+		var last:Int = frameCount - 1;
+		while (last > lastNonEmpty && !isFrameNonEmpty(last))
+			last--;
+
+		_cachedEffectiveFrameCount = last + 1;
+		return _cachedEffectiveFrameCount;
+	}
+
+	/**
+	 * Returns whether the frame at the given index contains any visible element.
+	 */
+	public function isFrameNonEmpty(index:Int):Bool
+	{
+		for (layer in layers)
+		{
+			if (!layer.visible)
+				continue;
+
+			var f = layer.getFrameAtIndex(index);
+			if (f != null && f.elements.length > 0)
+				return true;
+		}
+		return false;
+	}
+
+	/**
+	 * Clears the cached effective frame count.
+	 * Call this whenever frames / layers / elements are modified at runtime.
+	 */
+	public function clearEffectiveFrameCountCache():Void
+	{
+		_cachedEffectiveFrameCount = -1;
 	}
 
 	public inline function iterator()
@@ -382,6 +458,7 @@ class Timeline implements IFlxDestroyable
 		layers = FlxDestroyUtil.destroyArray(layers);
 		_bounds = FlxDestroyUtil.put(_bounds);
 		_layerMap = null;
+		_cachedEffectiveFrameCount = -1;
 
 		if (_cachedBounds != null)
 		{

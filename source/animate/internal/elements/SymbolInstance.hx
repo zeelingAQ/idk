@@ -15,6 +15,7 @@ import openfl.display.BlendMode;
 import openfl.geom.ColorTransform;
 
 using flixel.util.FlxColorTransformUtil;
+using StringTools;
 
 class SymbolInstance extends AnimateElement<SymbolInstanceJson>
 {
@@ -24,6 +25,9 @@ class SymbolInstance extends AnimateElement<SymbolInstanceJson>
 	public var loopType:LoopType;
 	public var symbolName(get, never):String;
 	public var transformationPoint:FlxPoint;
+
+	// 保存 JSON 里原始的 SN，用于 symbol 解析兜底
+	var _rawSymbolName:String;
 
 	var isColored:Bool;
 	var transform:ColorTransform;
@@ -37,7 +41,22 @@ class SymbolInstance extends AnimateElement<SymbolInstanceJson>
 		if (data == null)
 			return;
 
-		this.libraryItem = parent.getSymbol(data.SN);
+		this._rawSymbolName = data.SN;
+		this.libraryItem = null;
+
+		if (parent != null && data.SN != null)
+		{
+			this.libraryItem = parent.getSymbol(data.SN);
+
+			// 兜底：有些导出/手改的 JSON 里 SN 可能带首尾空格
+			if (this.libraryItem == null)
+			{
+				var trimmed = data.SN.trim();
+				if (trimmed.length > 0 && trimmed != data.SN)
+					this.libraryItem = parent.getSymbol(trimmed);
+			}
+		}
+
 		this.matrix = data.MX.toMatrix();
 		this.firstFrame = data.FF;
 		this.isColored = false;
@@ -97,20 +116,40 @@ class SymbolInstance extends AnimateElement<SymbolInstanceJson>
 	 */
 	public function getFrameIndex(index:Int, frameIndex:Int = 0):Int
 	{
-		var frameIndex = firstFrame + (index - frameIndex);
-		var frameCount = libraryItem.timeline.frameCount;
+		if (libraryItem == null || libraryItem.timeline == null)
+			return FlxMath.maxInt(firstFrame, 0);
+
+		var timeline = libraryItem.timeline;
+		var effectiveFrames = timeline.getEffectiveFrameCount();
+		if (effectiveFrames <= 0)
+			effectiveFrames = timeline.frameCount;
+
+		var result = firstFrame + (index - frameIndex);
 
 		switch (loopType)
 		{
 			case LoopType.LOOP:
-				frameIndex = FlxMath.wrap(frameIndex, 0, frameCount - 1);
+				if (effectiveFrames > 0)
+					result = FlxMath.wrap(result, 0, effectiveFrames - 1);
+
 			case LoopType.PLAY_ONCE:
-				frameIndex = FlxMath.minInt(frameIndex, frameCount - 1);
+				if (effectiveFrames > 0)
+				{
+					// firstFrame itself could be past the effective range;
+					// clamp to the last usable frame in that case.
+					if (firstFrame >= effectiveFrames)
+						result = effectiveFrames - 1;
+					else
+						result = FlxMath.minInt(result, effectiveFrames - 1);
+				}
+
 			case LoopType.SINGLE_FRAME:
-				frameIndex = firstFrame;
+				result = firstFrame;
+				if (effectiveFrames > 0 && result >= effectiveFrames)
+					result = effectiveFrames - 1;
 		}
 
-		return frameIndex;
+		return result;
 	}
 
 	/**
@@ -119,6 +158,9 @@ class SymbolInstance extends AnimateElement<SymbolInstanceJson>
 	 */
 	public function isSimpleSymbol():Bool
 	{
+		if (libraryItem == null || libraryItem.timeline == null)
+			return true;
+
 		var timeline = libraryItem.timeline;
 
 		if (timeline.frameCount == 1)
@@ -136,10 +178,30 @@ class SymbolInstance extends AnimateElement<SymbolInstanceJson>
 
 	override function getBounds(frameIndex:Int, ?rect:FlxRect, ?matrix:FlxMatrix, ?includeFilters:Bool = true, ?useCachedBounds:Bool = false):FlxRect
 	{
-		// TODO: look into this
-		// Patch-on fix for a really weird fucking bug
-		if (libraryItem != null && libraryItem.timeline.parent.existsSymbol(symbolName))
-			libraryItem = libraryItem.timeline.parent.getSymbol(symbolName);
+		rect ??= FlxRect.get();
+
+		if (libraryItem == null || libraryItem.timeline == null)
+			return rect.set(0, 0, 0, 0);
+
+		// Patch-on fix for a really weird bug:
+		// 优先用原始 SN 重新解析 symbol，避免 libraryItem.name 被改写或为空时拿错 symbol。
+		if (libraryItem.timeline.parent != null)
+		{
+			var resolved:SymbolItem = null;
+
+			if (_rawSymbolName != null && _rawSymbolName.length > 0)
+				resolved = libraryItem.timeline.parent.getSymbol(_rawSymbolName);
+
+			if (resolved == null)
+			{
+				var sn = symbolName;
+				if (sn != null && sn.length > 0)
+					resolved = libraryItem.timeline.parent.getSymbol(sn);
+			}
+
+			if (resolved != null && resolved.timeline != null)
+				libraryItem = resolved;
+		}
 
 		// Prepare the bounds matrix
 		var targetMatrix:FlxMatrix;
@@ -161,6 +223,9 @@ class SymbolInstance extends AnimateElement<SymbolInstanceJson>
 	override function draw(camera:FlxCamera, index:Int, frameIndex:Int, parentMatrix:FlxMatrix, ?transform:ColorTransform, ?blend:BlendMode,
 			?antialiasing:Bool, ?shader:FlxShader):Void
 	{
+		if (libraryItem == null || libraryItem.timeline == null)
+			return;
+
 		if (isColored) // Concat symbol's color to the current color transform
 		{
 			var t = this.transform;
@@ -191,6 +256,9 @@ class SymbolInstance extends AnimateElement<SymbolInstanceJson>
 	function _drawTimeline(camera:FlxCamera, index:Int, frameIndex:Int, parentMatrix:FlxMatrix, transform:Null<ColorTransform>, blend:Null<BlendMode>,
 			antialiasing:Null<Bool>, shader:Null<FlxShader>)
 	{
+		if (libraryItem == null || libraryItem.timeline == null)
+			return;
+
 		_mat.copyFrom(matrix);
 		_mat.concat(parentMatrix);
 		libraryItem.timeline.currentFrame = getFrameIndex(index, frameIndex);
@@ -219,7 +287,10 @@ class SymbolInstance extends AnimateElement<SymbolInstanceJson>
 
 	inline function get_symbolName():String
 	{
-		return libraryItem?.name;
+		if (libraryItem != null && libraryItem.name != null && libraryItem.name.length > 0)
+			return libraryItem.name;
+
+		return _rawSymbolName ?? "";
 	}
 
 	override function destroy()
@@ -230,11 +301,12 @@ class SymbolInstance extends AnimateElement<SymbolInstanceJson>
 		transform = null;
 		_transform = null;
 		_tmpMatrix = null;
+		_rawSymbolName = null;
 	}
 
 	public function toString():String
 	{
-		return '{name: ${libraryItem?.name}, matrix: $matrix}';
+		return '{name: ${symbolName}, matrix: $matrix}';
 	}
 }
 
