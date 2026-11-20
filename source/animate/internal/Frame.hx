@@ -49,7 +49,9 @@ class Frame implements IFlxDestroyable
 
 	public function add(element:Element):Void
 	{
-		if (elements.indexOf(element) != -1) return;
+		if (elements.indexOf(element) != -1)
+			return;
+
 		element.parentFrame = this;
 		elements.push(element);
 		setDirty();
@@ -57,7 +59,9 @@ class Frame implements IFlxDestroyable
 
 	public function insert(index:Int, element:Element)
 	{
-		if (elements.indexOf(element) != -1) return;
+		if (elements.indexOf(element) != -1)
+			return;
+
 		element.parentFrame = this;
 		elements.insert(index, element);
 		setDirty();
@@ -65,13 +69,18 @@ class Frame implements IFlxDestroyable
 
 	public function setDirty()
 	{
-		if (_requireBake) _dirty = true;
+		if (_requireBake)
+		{
+			_dirty = true;
+		}
+
 		if (_bakedFrames != null)
 		{
 			_bakedFrames.dispose();
 			_bakedFrames = null;
 			_bakedIndices = null;
 		}
+
 		if (layer != null && layer.timeline != null)
 			layer.timeline.parent.setSymbolDirty(layer.timeline.name);
 	}
@@ -80,25 +89,31 @@ class Frame implements IFlxDestroyable
 	public function convertToSymbol(fromIndex:Int, toIndex:Int, ?type:ElementType = GRAPHIC):SymbolInstance
 	{
 		var elements = this.elements.splice(fromIndex, toIndex - fromIndex);
+
 		var timeline = new animate.internal.Timeline(null, layer.timeline.parent, "tempSymbol");
 		var layer = new Layer(timeline);
+
 		var frame = new Frame(layer);
-		for (element in elements) frame.add(element);
+		for (element in elements)
+			frame.add(element);
 
 		layer.frames.push(frame);
 		layer.frameIndices.push(0);
+
 		timeline.layers.push(layer);
 		timeline.frameCount = layer.frameCount;
 
 		var item = new SymbolItem(timeline);
 		var instance = item.createInstance(type);
 		insert(fromIndex, instance);
+
 		return instance;
 	}
 
 	public function forEachElement(callback:Element->Void):Void
 	{
-		for (element in this.elements) callback(element);
+		for (element in this.elements)
+			callback(element);
 	}
 
 	public function getBounds(frameIndex:Int, ?rect:FlxRect, ?matrix:FlxMatrix, ?includeFilters:Bool = true, ?useCachedBounds:Bool = false):FlxRect
@@ -113,8 +128,8 @@ class Frame implements IFlxDestroyable
 		}
 
 		var tmpRect = FlxRect.get();
+
 		rect = elements[0].getBounds(frameIndex, rect, matrix, includeFilters, useCachedBounds);
-		
 		for (i in 1...elements.length)
 		{
 			tmpRect = elements[i].getBounds(frameIndex, tmpRect, matrix, includeFilters, useCachedBounds);
@@ -124,7 +139,7 @@ class Frame implements IFlxDestroyable
 		if (this.layer.layerType == CLIPPED && this.layer.parentLayer != null)
 		{
 			tmpRect.set();
-			// 【安全修复】不使用绝对帧偏移
+			// 【修复】剥离绝对帧污染
 			var maskerBounds = this.layer.parentLayer.getBounds(frameIndex, tmpRect, matrix, includeFilters, useCachedBounds);
 			Timeline.maskBounds(rect, maskerBounds);
 		}
@@ -133,8 +148,15 @@ class Frame implements IFlxDestroyable
 		return rect;
 	}
 
-	public inline function iterator() return elements.iterator();
-	public inline function keyValueIterator() return elements.keyValueIterator();
+	public inline function iterator()
+	{
+		return elements.iterator();
+	}
+
+	public inline function keyValueIterator()
+	{
+		return elements.keyValueIterator();
+	}
 
 	@:allow(animate.internal.Layer)
 	function _loadJson(frame:FrameJson, parent:FlxAnimateFrames):Void
@@ -154,19 +176,28 @@ class Frame implements IFlxDestroyable
 				{
 					this.elements.push(switch (si.ST)
 					{
-						case "B" | "button": new ButtonInstance(si, parent, this);
-						case "MC" | "movieclip": new MovieClipInstance(si, parent, this);
-						default: new SymbolInstance(si, parent, this);
+						case "B" | "button":
+							new ButtonInstance(si, parent, this);
+						case "MC" | "movieclip":
+							new MovieClipInstance(si, parent, this);
+						default:
+							new SymbolInstance(si, parent, this);
 					});
 				}
 				else
 				{
 					var asi = element.ASI;
-					if (asi != null) this.elements.push(new AtlasInstance(asi, parent, this));
+					if (asi != null)
+					{
+						this.elements.push(new AtlasInstance(asi, parent, this));
+					}
 					else
 					{
 						var tfi = element.TFI;
-						if (tfi != null) this.elements.push(new TextFieldInstance(tfi, parent, this));
+						if (tfi != null)
+						{
+							this.elements.push(new TextFieldInstance(tfi, parent, this));
+						}
 					}
 				}
 			}
@@ -175,6 +206,7 @@ class Frame implements IFlxDestroyable
 		if (frame.SND != null)
 		{
 			final soundPath:String = parent.path + '/LIBRARY/' + frame.SND.N;
+
 			#if (cpp || hl)
 			if (soundPath.endsWith(".wav"))
 			{
@@ -185,6 +217,7 @@ class Frame implements IFlxDestroyable
 				return;
 			}
 			#end
+
 			sound = FlxG.sound.load(soundPath);
 		}
 	}
@@ -206,38 +239,48 @@ class Frame implements IFlxDestroyable
 			return;
 		}
 
-		if (_bakedFrames == null) _bakedFrames = new BakedFramesVector(duration);
+		if (_bakedFrames == null)
+			_bakedFrames = new BakedFramesVector(duration);
+
 		if (_bakedIndices == null)
 		{
 			var isSimpleRender:Bool = true;
 			for (element in elements)
 			{
-				if (element is AtlasInstance) continue;
+				if (element is AtlasInstance)
+					continue;
+
 				if (!element.toSymbolInstance().isSimpleSymbol())
 				{
 					isSimpleRender = false;
 					break;
 				}
 			}
+
 			_bakedIndices = isSimpleRender ? [for (i in 0...duration) 0] : [for (i in 0...duration) i];
 		}
 
-		// 防越界安全计算
-		var safeIdx = frameIndex % _bakedIndices.length;
-		if (safeIdx < 0) safeIdx += _bakedIndices.length;
-		safeIdx = _bakedIndices[safeIdx];
-		
-		if (_bakedFrames[safeIdx] != null) return;
+		// 防止数组越界
+		var safeIndex = frameIndex % _bakedIndices.length;
+		if (safeIndex < 0) safeIndex += _bakedIndices.length;
+		safeIndex = _bakedIndices[safeIndex];
 
-		// 【精准手术】去掉引发负数的 this.index
-		var bakedFrame:Null<AtlasInstance> = FilterRenderer.maskFrame(this, frameIndex, layer);
-		if (bakedFrame == null) return;
+		if (_bakedFrames[safeIndex] != null)
+			return;
+
+		// 【修复】剥离绝对帧，传入安全的相对帧
+		var bakedFrame:Null<AtlasInstance> = FilterRenderer.maskFrame(this, safeIndex, layer);
+		if (bakedFrame == null)
+			return;
 
 		bakedFrame.parentFrame = this;
-		_bakedFrames[safeIdx] = bakedFrame;
+		_bakedFrames[safeIndex] = bakedFrame;
 
-		if (bakedFrame.frame == null || bakedFrame.frame.frame.isEmpty) bakedFrame.visible = false;
-		if (_dirty && _bakedFrames.isFull()) _dirty = false;
+		if (bakedFrame.frame == null || bakedFrame.frame.frame.isEmpty)
+			bakedFrame.visible = false;
+
+		if (_dirty && _bakedFrames.isFull())
+			_dirty = false;
 	}
 
 	@:allow(animate.internal.elements.SymbolInstance)
@@ -246,37 +289,49 @@ class Frame implements IFlxDestroyable
 	@:allow(animate.internal.elements.AtlasInstance)
 	private static var __isDirtyCall:Bool = false;
 
-	public function draw(camera:FlxCamera, currentFrame:Int, parentMatrix:FlxMatrix, ?transform:ColorTransform, ?blend:BlendMode, ?antialiasing:Bool, ?shader:FlxShader):Void
+	public function draw(camera:FlxCamera, currentFrame:Int, parentMatrix:FlxMatrix, ?transform:ColorTransform, ?blend:BlendMode, ?antialiasing:Bool,
+			?shader:FlxShader):Void
 	{
 		var blend = Blend.resolve(this.blend, blend);
 
-		// 【精准手术】彻底切断 currentFrame - this.index 的负数越界
-		var safeFrame = currentFrame % duration;
-		if (safeFrame < 0) safeFrame += duration;
+		// 【修复核心】彻底切断 currentFrame - this.index，计算出纯粹的安全帧
+		var safeFrame = currentFrame - this.index;
+		if (safeFrame < 0) safeFrame = 0;
+		
+		var wrappedFrame = safeFrame % duration;
+		if (wrappedFrame < 0) wrappedFrame += duration;
 
-		if (_dirty && layer != null) _bakeFrame(safeFrame);
+		if (_dirty)
+		{
+			if (layer != null)
+				_bakeFrame(wrappedFrame);
+		}
 
 		if (_bakedFrames != null)
 		{
-			var bakedFrame = _bakedFrames[_bakedIndices[safeFrame]];
+			var bakedFrame = _bakedFrames[_bakedIndices[wrappedFrame]];
 			if (bakedFrame != null)
 			{
-				// 注意这里传的还是 currentFrame 给下一级，但下面 _drawElements 会做截断
-				if (bakedFrame.visible) bakedFrame.draw(camera, currentFrame, this.index, parentMatrix, transform, blend, antialiasing, shader);
+				if (bakedFrame.visible)
+					// 传 0 避免下级污染
+					bakedFrame.draw(camera, wrappedFrame, 0, parentMatrix, transform, blend, antialiasing, shader);
 				return;
 			}
 		}
 
-		_drawElements(camera, currentFrame, parentMatrix, transform, blend, antialiasing, shader);
+		// 【修复核心】在这里把绝对偏移滤掉，传相对索引给下级
+		_drawElements(camera, wrappedFrame, parentMatrix, transform, blend, antialiasing, shader);
 	}
 
 	@:allow(animate.internal.FilterRenderer)
-	inline function _drawElements(camera:FlxCamera, currentFrame:Int, parentMatrix:FlxMatrix, ?transform:ColorTransform, ?blend:BlendMode, ?antialiasing:Bool, ?shader:FlxShader)
+	inline function _drawElements(camera:FlxCamera, currentFrame:Int, parentMatrix:FlxMatrix, ?transform:ColorTransform, ?blend:BlendMode, ?antialiasing:Bool,
+			?shader:FlxShader)
 	{
 		for (element in elements)
 		{
-			// 【精准手术】把 this.index 改为 0，杜绝 377 传给下一级
-			if (element.visible) element.draw(camera, currentFrame, 0, parentMatrix, transform, blend, antialiasing, shader);
+			if (element.visible)
+				// 【修复】把 frameIndex 改为 0，彻底切断 377 往下传递
+				element.draw(camera, currentFrame, 0, parentMatrix, transform, blend, antialiasing, shader);
 		}
 	}
 
@@ -285,6 +340,7 @@ class Frame implements IFlxDestroyable
 		elements = FlxDestroyUtil.destroyArray(elements);
 		sound = FlxDestroyUtil.destroy(sound);
 		layer = null;
+
 		if (_bakedFrames != null)
 		{
 			_bakedFrames.dispose();
@@ -292,7 +348,10 @@ class Frame implements IFlxDestroyable
 		}
 	}
 
-	public function toString():String return '{name: "$name", index: $index, duration: $duration}';
+	public function toString():String
+	{
+		return '{name: "$name", index: $index, duration: $duration}';
+	}
 }
 
 extern abstract BakedFramesVector(Array<AtlasInstance>)
@@ -303,27 +362,35 @@ extern abstract BakedFramesVector(Array<AtlasInstance>)
 		this = cpp.NativeArray.create(length);
 		#else
 		this = [];
-		for (i in 0...length) this.push(null);
+		for (i in 0...length)
+			this.push(null);
 		#end
 	}
 
-	public inline function isFull():Bool return this.indexOf(null) == -1;
+	public inline function isFull():Bool
+	{
+		return this.indexOf(null) == -1;
+	}
 
 	public inline function setNull(index:Int):Void
 	{
 		var frame = get(index);
-		if (frame == null) return;
+		if (frame == null)
+			return;
+
 		if (frame.frame != null)
 		{
 			frame.frame.parent = FlxDestroyUtil.destroy(frame.frame.parent);
 			frame.frame = FlxDestroyUtil.destroy(frame.frame);
 		}
+
 		set(index, FlxDestroyUtil.destroy(frame));
 	}
 
 	public inline function dispose():Void
 	{
-		for (i in 0...this.length) setNull(i);
+		for (i in 0...this.length)
+			setNull(i);
 	}
 
 	public inline function findFrame(index:Int):Null<AtlasInstance>
