@@ -48,11 +48,17 @@ class Layer implements IFlxDestroyable
 	 * @param index Index of the frame.
 	 * @return		The ``Frame`` found at the index, null if it doesn't exist.
 	 */
-	public function getFrameAtIndex(index:Int):Null<Frame>
+		public function getFrameAtIndex(index:Int):Null<Frame>
 	{
 		index = FlxMath.maxInt(index, 0);
-		if (index > (frameCount - 1))
+		
+		var count = frameCount;
+		if (count <= 0)
 			return null;
+
+		// 核心修复：如果帧号越界，强制循环回绕，防止动画直接消失变空白
+		if (index >= count)
+			index = index % count;
 
 		var frameIndex = frameIndices[index];
 		return frames[frameIndex];
