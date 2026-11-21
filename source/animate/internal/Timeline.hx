@@ -69,7 +69,7 @@ class Timeline implements IFlxDestroyable
 
 	/**
 	 * Returns the frames through all the layers of a timeline at a specific frame index.
-	 * 
+	 *
 	 * @param index Frame index ``Int`` to get the frames objects from.
 	 * @return		An array of all the ``Frame`` objects at a specific frame index.
 	 */
@@ -87,7 +87,7 @@ class Timeline implements IFlxDestroyable
 
 	/**
 	 * Returns the elements through all the layers of a timeline at a specific frame index.
-	 * 
+	 *
 	 * @param index Frame index ``Int`` to get the element objects from.
 	 * @return		An array of all the ``Element`` objects at a specific frame index.
 	 */
@@ -109,7 +109,7 @@ class Timeline implements IFlxDestroyable
 	/**
 	 * Returns an array of all the elements at the current frame displayed on the timeline.
 	 * May be innacurate if theres more than one ``FlxAnimate`` object playing the same timeline.
-	 * 
+	 *
 	 * For accuracy of your specific needs, I recommend using ``getElementsAtIndex`` more.
 	 *
 	 * @return An array of all the ``Element`` objects at the current frame.
@@ -121,7 +121,7 @@ class Timeline implements IFlxDestroyable
 
 	/**
 	 * Returns the first frame label in the timeline at a specific frame index.
-	 * 
+	 *
 	 * @param index Frame index ``Int`` to get the element objects from.
 	 * @return		Label ``String`` of the specific frame index, an empty string if not found.
 	 */
@@ -293,7 +293,7 @@ class Timeline implements IFlxDestroyable
 
 	/**
 	 * Use this function to clear the currently cached timeline bounds.
-	 * 
+	 *
 	 * Some functions like ``getWholeBounds`` require the use of cached bounds to greatly save on performance.
 	 * However, if the user changed something about the Texture Atlas, a recache of those bounds may be neccesary.
 	 */
@@ -306,7 +306,7 @@ class Timeline implements IFlxDestroyable
 
 	/**
 	 * Returns the number of frames up to (and including) the last frame that
-	 * contains visible elements.
+	 * contains renderable elements.
 	 *
 	 * Adobe Animate often exports trailing blank frames at the end of a timeline
 	 * (used as end-of-animation pauses). Those blank frames should NOT be part of
@@ -339,7 +339,7 @@ class Timeline implements IFlxDestroyable
 
 		if (lastNonEmpty < 0)
 		{
-			// No frame has any element; fall back to the raw frameCount.
+			// No frame has any renderable element; fall back to the raw frameCount.
 			_cachedEffectiveFrameCount = frameCount;
 			return _cachedEffectiveFrameCount;
 		}
@@ -354,7 +354,14 @@ class Timeline implements IFlxDestroyable
 	}
 
 	/**
-	 * Returns whether the frame at the given index contains any visible element.
+	 * Returns whether the frame at the given index contains any renderable element.
+	 *
+	 * 与旧版相比，这里多了对元素是否真正可渲染的判断：
+	 * - SymbolInstance / MovieClipInstance / ButtonInstance（都继承自 SymbolInstance）
+	 *   只有在 libraryItem 和 timeline 都解析成功时，才算有效可见；
+	 *   否则它们虽然 visible=false，但 elements.length>0，会把 effectiveFrameCount 撑大，
+	 *   导致 FlxMath.wrap 之后正好落到真正的空白帧上。
+	 * - AtlasInstance / TextFieldInstance 只要 visible 为 true 即视为可渲染。
 	 */
 	public function isFrameNonEmpty(index:Int):Bool
 	{
@@ -364,10 +371,35 @@ class Timeline implements IFlxDestroyable
 				continue;
 
 			var f = layer.getFrameAtIndex(index);
-			if (f != null && f.elements.length > 0)
-				return true;
+			if (f == null)
+				continue;
+
+			for (element in f.elements)
+			{
+				if (isElementEffectivelyVisible(element))
+					return true;
+			}
 		}
 		return false;
+	}
+
+	/**
+	 * 判断某个元素是否"实际可渲染"。
+	 */
+	function isElementEffectivelyVisible(element:Element):Bool
+	{
+		if (element == null || !element.visible)
+			return false;
+
+		// SymbolInstance 及其子类（MovieClipInstance / ButtonInstance）
+		// 只有在 libraryItem 和 timeline 都解析成功时才真正可渲染。
+		if (Std.isOfType(element, animate.internal.elements.SymbolInstance))
+		{
+			var si:animate.internal.elements.SymbolInstance = cast element;
+			return si.libraryItem != null && si.libraryItem.timeline != null;
+		}
+
+		return true;
 	}
 
 	/**
