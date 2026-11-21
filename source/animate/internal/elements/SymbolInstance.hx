@@ -162,23 +162,25 @@ public function getFrameIndex(index:Int, frameIndex:Int = 0):Int
 /**
  * 空帧自愈：如果 start 是空帧，向播放方向搜索最近的可渲染帧；
  * 找不到再向反方向搜索。都找不到就返回 start（保持原行为）。
- *
- * @param timeline        目标 timeline
- * @param start           初步计算出的帧
- * @param effectiveFrames 有效帧数（搜索范围上限）
- * @param wrapAround      LOOP 时为 true，搜索会循环；PLAY_ONCE / SINGLE_FRAME 为 false，不越界
  */
 function findNearestRenderableFrame(timeline:Timeline, start:Int, effectiveFrames:Int, wrapAround:Bool):Int
 {
 	if (effectiveFrames <= 0)
 		return start;
 
-	// 先归一化到合法范围
+	// 先归一化到合法范围 (避开不存在的 FlxMath.clamp)
 	var base = start;
 	if (wrapAround)
+	{
 		base = FlxMath.wrap(base, 0, effectiveFrames - 1);
+	}
 	else
-		base = FlxMath.clamp(base, 0, effectiveFrames - 1);
+	{
+		if (base < 0)
+			base = 0;
+		else if (base >= effectiveFrames)
+			base = effectiveFrames - 1;
+	}
 
 	if (timeline.isFrameNonEmpty(base))
 		return base;
