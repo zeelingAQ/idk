@@ -114,44 +114,113 @@ class SymbolInstance extends AnimateElement<SymbolInstanceJson>
 	 * @param frameIndex 	Optional, relative frame index of the current keyframe the symbol instance is stored at.
 	 * @return				Found frame index for rendering at a specific frame.
 	 */
-	public function getFrameIndex(index:Int, frameIndex:Int = 0):Int
+	/**
+ * Returns the timeline frame index needed to be rendered at a specific frame, while taking loop types into consideration.
+ * 计算后会做一次“空帧自愈”：如果落点是空帧，就向播放方向搜索最近的可渲染帧。
+ */
+public function getFrameIndex(index:Int, frameIndex:Int = 0):Int
+{
+	if (libraryItem == null || libraryItem.timeline == null)
+		return FlxMath.maxInt(firstFrame, 0);
+
+	var timeline = libraryItem.timeline;
+	var effectiveFrames = timeline.getEffectiveFrameCount();
+	if (effectiveFrames <= 0)
+		effectiveFrames = timeline.frameCount;
+	if (effectiveFrames <= 0)
+		return FlxMath.maxInt(firstFrame, 0);
+
+	var result = firstFrame + (index - frameIndex);
+
+	switch (loopType)
 	{
-		if (libraryItem == null || libraryItem.timeline == null)
-			return FlxMath.maxInt(firstFrame, 0);
+		case LoopType.LOOP:
+			if (effectiveFrames > 0)
+				result = FlxMath.wrap(result, 0, effectiveFrames - 1);
+			result = findNearestRenderableFrame(timeline, result, effectiveFrames, true);
 
-		var timeline = libraryItem.timeline;
-		var effectiveFrames = timeline.getEffectiveFrameCount();
-		if (effectiveFrames <= 0)
-			effectiveFrames = timeline.frameCount;
-
-		var result = firstFrame + (index - frameIndex);
-
-		switch (loopType)
-		{
-			case LoopType.LOOP:
-				if (effectiveFrames > 0)
-					result = FlxMath.wrap(result, 0, effectiveFrames - 1);
-
-			case LoopType.PLAY_ONCE:
-				if (effectiveFrames > 0)
-				{
-					// firstFrame itself could be past the effective range;
-					// clamp to the last usable frame in that case.
-					if (firstFrame >= effectiveFrames)
-						result = effectiveFrames - 1;
-					else
-						result = FlxMath.minInt(result, effectiveFrames - 1);
-				}
-
-			case LoopType.SINGLE_FRAME:
-				result = firstFrame;
-				if (effectiveFrames > 0 && result >= effectiveFrames)
+		case LoopType.PLAY_ONCE:
+			if (effectiveFrames > 0)
+			{
+				if (firstFrame >= effectiveFrames)
 					result = effectiveFrames - 1;
-		}
+				else
+					result = FlxMath.minInt(result, effectiveFrames - 1);
+			}
+			result = findNearestRenderableFrame(timeline, result, effectiveFrames, false);
 
-		return result;
+		case LoopType.SINGLE_FRAME:
+			result = firstFrame;
+			if (effectiveFrames > 0 && result >= effectiveFrames)
+				result = effectiveFrames - 1;
+			result = findNearestRenderableFrame(timeline, result, effectiveFrames, false);
 	}
 
+	return result;
+}
+
+/**
+ * 空帧自愈：如果 start 是空帧，向播放方向搜索最近的可渲染帧；
+ * 找不到再向反方向搜索。都找不到就返回 start（保持原行为）。
+ *
+ * @param timeline        目标 timeline
+ * @param start           初步计算出的帧
+ * @param effectiveFrames 有效帧数（搜索范围上限）
+ * @param wrapAround      LOOP 时为 true，搜索会循环；PLAY_ONCE / SINGLE_FRAME 为 false，不越界
+ */
+function findNearestRenderableFrame(timeline:Timeline, start:Int, effectiveFrames:Int, wrapAround:Bool):Int
+{
+	if (effectiveFrames <= 0)
+		return start;
+
+	// 先归一化到合法范围
+	var base = start;
+	if (wrapAround)
+		base = FlxMath.wrap(base, 0, effectiveFrames - 1);
+	else
+		base = FlxMath.clamp(base, 0, effectiveFrames - 1);
+
+	if (timeline.isFrameNonEmpty(base))
+		return base;
+
+	// 向播放方向搜
+	var i = base + 1;
+	var steps = 1;
+	while (steps <= effectiveFrames)
+	{
+		var idx = i;
+		if (wrapAround)
+			idx = FlxMath.wrap(idx, 0, effectiveFrames - 1);
+		else if (idx >= effectiveFrames)
+			break;
+
+		if (idx >= 0 && idx < effectiveFrames && timeline.isFrameNonEmpty(idx))
+			return idx;
+
+		i++;
+		steps++;
+	}
+
+	// 再往反方向搜
+	i = base - 1;
+	steps = 1;
+	while (steps <= effectiveFrames)
+	{
+		var idx = i;
+		if (wrapAround)
+			idx = FlxMath.wrap(idx, 0, effectiveFrames - 1);
+		else if (idx < 0)
+			break;
+
+		if (idx >= 0 && idx < effectiveFrames && timeline.isFrameNonEmpty(idx))
+			return idx;
+
+		i--;
+		steps++;
+	}
+
+	return base;
+}
 	/**
 	 * Method used internally to check if a symbol has simple rendering (one frame).
 	 * @return If the symbol has simple rendering or not.
