@@ -10,6 +10,7 @@ import util.GenUtil;
 import funkin.backend.utils.DiscordUtil;
 import mobile.funkin.backend.utils.TouchUtil;
 
+import funkin.game.PlayState;
 var start1Sound:FlxSound;
 var start2Sound:FlxSound;
 var skyBG:FunkinSprite;
@@ -22,8 +23,16 @@ var whiteOverlay:FlxSprite;
 var canContinue:Bool = false;
 var transitioning:Bool = false;
 
+var targetSong = "out-of-time";
+var targetDifficulty = 2;   // 2 = Hard
+var hasRun = false;
 function create()
 {
+	new FlxTimer().start(2.5, function(_) {
+    if (hasRun) return;
+    hasRun = true;
+    FlxG.switchState(new PlayState(targetSong, targetDifficulty));
+
 	DiscordUtil.changePresenceSince("In Title", null);
 	if (FlxG.sound.music != null)
 		FlxG.sound.music.stop();
