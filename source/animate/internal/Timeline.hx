@@ -363,7 +363,7 @@ class Timeline implements IFlxDestroyable
 	 *   导致 FlxMath.wrap 之后正好落到真正的空白帧上。
 	 * - AtlasInstance / TextFieldInstance 只要 visible 为 true 即视为可渲染。
 	 */
-	public function isFrameNonEmpty(index:Int):Bool
+		public function isFrameNonEmpty(index:Int):Bool
 	{
 		for (layer in layers)
 		{
@@ -376,8 +376,28 @@ class Timeline implements IFlxDestroyable
 
 			for (element in f.elements)
 			{
-				if (isElementEffectivelyVisible(element))
+				if (element == null || !element.visible)
+					continue;
+
+				// 如果是 Symbol，必须要解析出内容才算有效
+				if (Std.isOfType(element, animate.internal.elements.SymbolInstance))
+				{
+					var si:animate.internal.elements.SymbolInstance = cast element;
+					if (si.libraryItem != null && si.libraryItem.timeline != null)
+						return true;
+				}
+				// 如果是图片，必须要真实的贴图帧才算有效，防止“假非空”
+				else if (Std.isOfType(element, animate.internal.elements.AtlasInstance))
+				{
+					var ai:animate.internal.elements.AtlasInstance = cast element;
+					if (ai.frame != null && !ai.frame.frame.isEmpty)
+						return true;
+				}
+				// 其他类型（文本等）直接算有效
+				else
+				{
 					return true;
+				}
 			}
 		}
 		return false;
