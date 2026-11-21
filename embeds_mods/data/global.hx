@@ -110,7 +110,7 @@ function preStateSwitch()
 	Options.P2_DODGE = [];
 
 	if (Options.language == 'en')
-		Options.language = 'en_US';
+		Options.language = 'zh_cn';
 
 	i18n = new I18n();
 	i18n.loadFromString(Assets.getText('data/langs/${Options.language}/translations.json'));
