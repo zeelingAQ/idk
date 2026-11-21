@@ -245,7 +245,7 @@ function postStateSwitch()
 		});
 	}
 
-	Options.devMode = false;
+	Options.devMode = true;
 
 	globalCam = new FlxCamera();
 	FlxG.cameras.add(globalCam);
@@ -281,7 +281,14 @@ function update(elapsed:Float)
 {
 	FlxG.cameras.remove(globalCam, false);
 	FlxG.cameras.add(globalCam, false);
-
+// 放在 update() 里
+if (PlayState.instance != null)
+{
+    if (PlayState.instance.player != null)
+        PlayState.instance.player.cpu = true;   // 注意：= true，不是 = !xxx
+    else
+        PlayState.instance.cpu.cpu = true;
+}
 	if (Options.devMode)
 	{
 		if (elapsed > highestPeak)
